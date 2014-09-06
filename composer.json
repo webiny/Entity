@@ -18,6 +18,7 @@
 	"minimum-stability": "dev",
 	"require": {
 		"php": ">=5.4.0",
+		"webiny/config": "dev-master",
 		"webiny/class-loader": "dev-master",
 		"webiny/std-lib": "dev-master",
 		"webiny/mongo": "dev-master"
