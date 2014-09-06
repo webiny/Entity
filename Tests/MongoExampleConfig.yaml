@@ -18,4 +18,4 @@ Mongo:
     ClassLoader:
         Purekid: '../Purekid'
     Bridges:
-        Mongo: \Webiny\Component\Mongo\Bridge\Purekid
+        Mongo: \Webiny\Component\Mongo\Bridge\Purekid\Mongodm
