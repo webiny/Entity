@@ -30,10 +30,11 @@ class SelectAttribute extends AttributeAbstract
     {
         if (!$this->isString($value) && !$this->isNumber($value)) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                $this->_attribute,
-                'string or number',
-                gettype($value)
-            ]);
+                    $this->_attribute,
+                    'string or number',
+                    gettype($value)
+                ]
+            );
         }
 
         return $this;

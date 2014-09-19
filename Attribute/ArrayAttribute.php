@@ -8,6 +8,7 @@
 namespace Webiny\Component\Entity\Attribute;
 
 use Traversable;
+use Webiny\Component\Entity\EntityAbstract;
 use Webiny\Component\StdLib\StdObject\ArrayObject\ArrayObject;
 
 /**
@@ -16,6 +17,15 @@ use Webiny\Component\StdLib\StdObject\ArrayObject\ArrayObject;
  */
 class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \ArrayAccess
 {
+    /**
+     * @param string         $attribute
+     * @param EntityAbstract $entity
+     */
+    function __construct($attribute, EntityAbstract $entity)
+    {
+        parent::__construct($attribute, $entity);
+        $this->_value = new ArrayObject();
+    }
 
     /**
      * Perform validation against given value
@@ -29,14 +39,36 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
     {
         if (!$this->isArray($value) && !$this->isArrayObject($value)) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                $this->_attribute,
-                'array or ArrayObject',
-                gettype($value)
-            ]);
+                    $this->_attribute,
+                    'array or ArrayObject',
+                    gettype($value)
+                ]
+            );
         }
 
         return $this;
     }
+
+    public function setValue($value = [])
+    {
+        if ($this->isNull($value)) {
+            $value = [];
+        }
+        $this->_value->val($value);
+
+        return $this;
+    }
+
+    public function getValue()
+    {
+        return $this->_value->val();
+    }
+
+    public function getToArrayValue()
+    {
+        return $this->_value->val();
+    }
+
 
     /**
      * Get value or return $default if there is no element set.
@@ -49,16 +81,12 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function get($key, $default = null)
     {
-        $array = new ArrayObject($this->_value);
-
-        return $array->keyNested($key, $default, true);
+        return $this->_value->keyNested($key, $default, true);
     }
 
     public function set($key, $value)
     {
-        $array = new ArrayObject($this->_value);
-        $array->keyNested($key, $value);
-        $this->_value = $array->val();
+        $this->_value->keyNested($key, $value);
     }
 
     /**
@@ -70,7 +98,7 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function getIterator()
     {
-        return new \ArrayIterator($this->_value);
+        return new \ArrayIterator($this->_value->val());
     }
 
     /**

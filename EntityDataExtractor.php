@@ -127,7 +127,11 @@ class EntityDataExtractor
             // Check if asterisk is present and replace it with actual attribute names
             if ($this->arr($fields)->keyExists('*')) {
                 unset($fields['*']);
-                $defaultFields = $this->str($this->_getDefaultAttributes())->explode(',')->filter()->map('trim')->flip()
+                $defaultFields = $this->str($this->_getDefaultAttributes())
+                                      ->explode(',')
+                                      ->filter()
+                                      ->map('trim')
+                                      ->flip()
                                       ->val();
                 $fields = $this->arr($fields)->merge($defaultFields)->val();
             }

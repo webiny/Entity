@@ -72,7 +72,9 @@ class Many2ManyStorage
 
         Entity::getInstance()->getDatabase()->ensureIndex($collectionName, $index, ['unique' => 1]);
 
-        // Insert values
+        /**
+         * Insert values
+         */
         foreach ($attribute->getValue() as $item) {
             $firstEntityId = $attribute->getParentEntity()->getId()->getValue();
             if ($item->getId()->getValue() == null) {
@@ -91,6 +93,10 @@ class Many2ManyStorage
                 continue;
             }
         }
+        /**
+         * The value of many2many attribute must be set to 'null' to trigger data reload on next access.
+         * If this is not done, we may not have proper links between the 2 entities and it may seem as if data was missing.
+         */
         $attribute->setValue(null);
     }
 
@@ -113,7 +119,7 @@ class Many2ManyStorage
         $sourceEntityId = $attribute->getParentEntity()->getId()->getValue();
 
         if ($this->isNull($sourceEntityId) || $this->isNull($item)) {
-            return false;
+            return;
         }
 
         $firstClassName = $this->_extractClassName($attribute->getParentEntity());

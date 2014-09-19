@@ -15,7 +15,9 @@ class Author extends EntityAbstract
         $this->attr('name')->char();
 
         // One2Many
-        $this->attr('pages')->one2many('author')->setEntity('\Webiny\Component\Entity\Tests\Classes\Page')
+        $this->attr('pages')
+             ->one2many('author')
+             ->setEntity('\Webiny\Component\Entity\Tests\Classes\Page')
              ->setOnDelete('restrict');
     }
 }

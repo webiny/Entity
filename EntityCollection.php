@@ -45,8 +45,12 @@ class EntityCollection implements \IteratorAggregate, \ArrayAccess
         $this->_offset = $offset;
         $this->_limit = $limit;
 
-        $this->_cursor = Entity::getInstance()->getDatabase()->find($this->_collectionName, $this->_conditions)
-                               ->sort($this->_order)->skip($this->_offset)->limit($this->_limit);
+        $this->_cursor = Entity::getInstance()
+                               ->getDatabase()
+                               ->find($this->_collectionName, $this->_conditions)
+                               ->sort($this->_order)
+                               ->skip($this->_offset)
+                               ->limit($this->_limit);
     }
 
     /**

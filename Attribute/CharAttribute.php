@@ -26,10 +26,11 @@ class CharAttribute extends AttributeAbstract
     {
         if (!$this->isString($value)) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                $this->_attribute,
-                'string',
-                gettype($value)
-            ]);
+                    $this->_attribute,
+                    'string',
+                    gettype($value)
+                ]
+            );
         }
 
         return $this;

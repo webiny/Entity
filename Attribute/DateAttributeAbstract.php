@@ -102,10 +102,11 @@ abstract class DateAttributeAbstract extends AttributeAbstract
             new DateTimeObject($value);
         } catch (DateTimeObjectException $e) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                $this->_attribute,
-                'Unix timestamp, string or DateTimeObject',
-                gettype($value)
-            ]);
+                    $this->_attribute,
+                    'Unix timestamp, string or DateTimeObject',
+                    gettype($value)
+                ]
+            );
         }
 
         return $this;

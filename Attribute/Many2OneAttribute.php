@@ -173,10 +173,11 @@ class Many2OneAttribute extends AttributeAbstract
             ) && strlen($value) != 24
         ) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                $this->_attribute,
-                'entity ID, instance of \Webiny\Component\Entity\EntityAbstract or null',
-                gettype($value)
-            ]);
+                    $this->_attribute,
+                    'entity ID, instance of \Webiny\Component\Entity\EntityAbstract or null',
+                    gettype($value)
+                ]
+            );
         }
 
         return $this;

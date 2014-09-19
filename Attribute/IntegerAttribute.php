@@ -31,10 +31,11 @@ class IntegerAttribute extends AttributeAbstract
     {
         if (!$this->isInteger($value)) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                $this->_attribute,
-                'integer',
-                gettype($value)
-            ]);
+                    $this->_attribute,
+                    'integer',
+                    gettype($value)
+                ]
+            );
         }
 
         return $this;
