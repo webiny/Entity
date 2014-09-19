@@ -26,10 +26,11 @@ class BooleanAttribute extends AttributeAbstract
     {
         if (!$this->isBool($value)) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                $this->_attribute,
-                'boolean',
-                gettype($value)
-            ]);
+                    $this->_attribute,
+                    'boolean',
+                    gettype($value)
+                ]
+            );
         }
 
         return $this;

@@ -30,6 +30,6 @@ class DateTimeAttribute extends DateAttributeAbstract
         }
         $value = strtotime($this->getValue());
 
-        return $value ? : null;
+        return $value ?: null;
     }
 }

@@ -158,7 +158,9 @@ class EntityAttributeBuilder
      */
     public function one2many($relatedAttribute)
     {
-        return $this->_attributes[$this->_attribute] = new One2ManyAttribute($this->_attribute, $this->_entity, $relatedAttribute);
+        return $this->_attributes[$this->_attribute] = new One2ManyAttribute($this->_attribute, $this->_entity,
+                                                                             $relatedAttribute
+        );
     }
 
     /**
@@ -168,6 +170,8 @@ class EntityAttributeBuilder
      */
     public function many2many($collectionName)
     {
-        return $this->_attributes[$this->_attribute] = new Many2ManyAttribute($this->_attribute, $this->_entity, $collectionName);
+        return $this->_attributes[$this->_attribute] = new Many2ManyAttribute($this->_attribute, $this->_entity,
+                                                                              $collectionName
+        );
     }
 }

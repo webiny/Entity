@@ -134,7 +134,7 @@ class EntityTest extends PHPUnit_Framework_TestCase
     {
         $page = self::$_page;
         $data = [
-            'title' => 12,
+            'title'  => 12,
             'author' => false
         ];
         $this->setExpectedException('\Webiny\Component\Entity\Attribute\ValidationException');

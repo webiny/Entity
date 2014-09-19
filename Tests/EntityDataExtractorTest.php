@@ -69,6 +69,11 @@ class EntityDataExtractorTest extends PHPUnit_Framework_TestCase
         $page->getAttribute('title')->setValue('First blog post');
         $page->getAttribute('author')->setValue($author);
         $page->getAttribute('comments')->add($comment);
+        $page->getAttribute('settings')->setValue([
+                                                      'key1' => 'value1',
+                                                      'key2' => ['key3' => 'value3']
+                                                  ]
+        );
         $page->getAttribute('labels')->add([
                                                $label,
                                                $label2
@@ -86,7 +91,7 @@ class EntityDataExtractorTest extends PHPUnit_Framework_TestCase
         self::mongo()->dropCollection('Label2Page');
     }
 
-    public function testEntity()
+    function testEntity()
     {
         $page = self::$_page;
         $page->save();
@@ -106,7 +111,7 @@ class EntityDataExtractorTest extends PHPUnit_Framework_TestCase
         $this->assertEquals('marketing', $data['labels'][0]['label']);
     }
 
-    public function testParentEntity()
+    function testParentEntity()
     {
         // Create parent page
         $parentPage = new Page();

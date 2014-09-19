@@ -65,7 +65,8 @@ abstract class EntityAbstract implements \ArrayAccess
         if ($instance) {
             return $instance;
         }
-        $data = Entity::getInstance()->getDatabase()
+        $data = Entity::getInstance()
+                      ->getDatabase()
                       ->findOne(static::$_entityCollection, ["_id" => Entity::getInstance()->getDatabase()->id($id)]);
         if (!$data) {
             return null;
@@ -95,8 +96,8 @@ abstract class EntityAbstract implements \ArrayAccess
         $order = self::_parseOrderParameters($order);
         $offset = $limit * ($page > 0 ? $page - 1 : 0);
 
-        return new EntityCollection(get_called_class(
-                                    ), static::$_entityCollection, $conditions, $order, $limit, $offset);
+        return new EntityCollection(get_called_class(), static::$_entityCollection, $conditions, $order, $limit, $offset
+        );
     }
 
     /**
@@ -179,9 +180,10 @@ abstract class EntityAbstract implements \ArrayAccess
     {
         if (!$this->_attributes->keyExists($attribute)) {
             throw new EntityException(EntityException::ATTRIBUTE_NOT_FOUND, [
-                $attribute,
-                get_class($this)
-            ]);
+                    $attribute,
+                    get_class($this)
+                ]
+            );
         }
 
         return $this->_attributes[$attribute];
@@ -250,7 +252,8 @@ abstract class EntityAbstract implements \ArrayAccess
             $this->getId()->setValue((string)$savedData['_id']);
         } else {
             $id = Entity::getInstance()->getDatabase()->id($this->getId()->getValue());
-            Entity::getInstance()->getDatabase()
+            Entity::getInstance()
+                  ->getDatabase()
                   ->update(static::$_entityCollection, ['_id' => $id], ['$set' => $data], ['upsert' => true]);
         }
 
@@ -260,11 +263,18 @@ abstract class EntityAbstract implements \ArrayAccess
          * Now save One2Many values
          */
         foreach ($this->getAttributes() as $attr) {
+            /* @var $attr One2ManyAttribute */
             if ($this->isInstanceOf($attr, $one2manyClass)) {
                 foreach ($attr->getValue() as $item) {
                     $item->{$attr->getRelatedAttribute()}->setValue($this);
                     $item->save();
                 }
+                /**
+                 * The value of one2many attribute must be set to null to trigger data reload on next access.
+                 * This is necessary when we have circular references, and parent record does not get it's many2one ID saved
+                 * until all child referenced objects are saved. Only then can we get proper links between referenced classes.
+                 */
+                $attr->setValue(null);
             }
         }
 
@@ -313,10 +323,11 @@ abstract class EntityAbstract implements \ArrayAccess
 
                 if (!$foundMatch) {
                     throw new EntityException(EntityException::NO_MATCHING_MANY2MANY_ATTRIBUTE_FOUND, [
-                                                                                                        $thisClass,
-                                                                                                        $relatedClass,
-                                                                                                        $attrName
-                                                                                                    ]);
+                            $thisClass,
+                            $relatedClass,
+                            $attrName
+                        ]
+                    );
                 }
             }
         }
@@ -359,10 +370,11 @@ abstract class EntityAbstract implements \ArrayAccess
         /**
          * Delete $this
          */
-        Entity::getInstance()->getDatabase()
+        Entity::getInstance()
+              ->getDatabase()
               ->remove(static::$_entityCollection,
                        ['_id' => Entity::getInstance()->getDatabase()->id($this->getId()->getValue())]
-            );
+              );
 
         EntityPool::getInstance()->remove($this);
 

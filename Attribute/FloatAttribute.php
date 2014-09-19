@@ -25,10 +25,11 @@ class FloatAttribute extends AttributeAbstract
     {
         if (!$this->isNumber($value)) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                $this->_attribute,
-                'number',
-                gettype($value)
-            ]);
+                    $this->_attribute,
+                    'number',
+                    gettype($value)
+                ]
+            );
         }
 
         return $this;

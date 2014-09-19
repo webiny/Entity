@@ -51,10 +51,11 @@ class Many2ManyAttribute extends CollectionAttributeAbstract
         foreach ($item as $i) {
             if (!$this->isInstanceOf($i, $this->getEntity()) && strlen($i) != 24) {
                 throw new EntityException(EntityException::INVALID_MANY2MANY_VALUE, [
-                    $this->_attribute,
-                    'entity ID or instance of ' . $this->getEntity() . ' or null',
-                    get_class($i)
-                ]);
+                        $this->_attribute,
+                        'entity ID or instance of ' . $this->getEntity() . ' or null',
+                        get_class($i)
+                    ]
+                );
             }
         }
 
