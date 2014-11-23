@@ -1,9 +1,9 @@
 #################################
-# Storage - example configuration #
+# Mongo - example configuration #
 #################################
 
-# These are example definition of Mongo services.
-# In order to use them, you first must call Mongo::setConfig($pathToYourConfig),
+# This is an example definition of Mongo service.
+# In order to use Mongo, you first must call Mongo::setConfig($pathToYourConfig),
 # and then just use the MongoTrait (eg. $this->mongo('Webiny'))
 #
 # Mongo constructor parameters are: host, database, username, password, collectionPrefix
@@ -15,5 +15,5 @@ Mongo:
         Webiny:
             Class: '\Webiny\Component\Mongo\Mongo'
             Arguments: [127.0.0.1:27017, webiny, null, null, WebinyTest]
-    Bridges:
-        Mongo: \Webiny\Component\Mongo\Bridge\Mongo
+    Driver: \Webiny\Component\Mongo\Driver\Mongo
+    ResultClass: \Webiny\Component\Mongo\MongoResult

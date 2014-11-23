@@ -17,15 +17,15 @@ use Webiny\Component\StdLib\StdObject\ArrayObject\ArrayObject;
  */
 class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \ArrayAccess
 {
-    /**
-     * @param string         $attribute
-     * @param EntityAbstract $entity
-     */
-    function __construct($attribute, EntityAbstract $entity)
+    public function setValue($value = null)
     {
-        parent::__construct($attribute, $entity);
-        $this->_value = new ArrayObject();
+        if($this->isNull($value)) {
+            $value = [];
+        }
+
+        return parent::setValue($value);
     }
+
 
     /**
      * Perform validation against given value
@@ -37,7 +37,11 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function validate($value)
     {
-        if (!$this->isArray($value) && !$this->isArrayObject($value)) {
+        if($this->isNull($value)) {
+            return $this;
+        }
+
+        if(!$this->isArray($value) && !$this->isArrayObject($value)) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
                     $this->_attribute,
                     'array or ArrayObject',
@@ -49,24 +53,13 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
         return $this;
     }
 
-    public function setValue($value = [])
-    {
-        if ($this->isNull($value)) {
-            $value = [];
-        }
-        $this->_value->val($value);
-
-        return $this;
-    }
-
-    public function getValue()
-    {
-        return $this->_value->val();
-    }
-
     public function getToArrayValue()
     {
-        return $this->_value->val();
+        if($this->isNull($this->_value) && !$this->isNull($this->_defaultValue)) {
+            return $this->_defaultValue;
+        }
+
+        return $this->_value;
     }
 
 
@@ -81,13 +74,53 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function get($key, $default = null)
     {
-        return $this->_value->keyNested($key, $default, true);
+        return $this->arr($this->_value)->keyNested($key, $default, true);
     }
 
+    /**
+     * Set value for given key (can be nested key, using dotted notation)
+     *
+     * @param string $key
+     * @param mixed $value
+     */
     public function set($key, $value)
     {
-        $this->_value->keyNested($key, $value);
+        $this->_value = $this->arr($this->_value)->keyNested($key, $value)->val();
     }
+
+    /**
+     * Prepend value to array
+     *
+     * @param mixed $value
+     *
+     * @return $this
+     */
+    public function prepend($value)
+    {
+        $this->_value = $this->arr($this->_value)->prepend($value)->val();
+
+        return $this;
+    }
+
+    /**
+     * Append value to array
+     *
+     * @param mixed $value
+     *
+     * @return $this
+     */
+    public function append($value)
+    {
+        $this->_value = $this->arr($this->_value)->append($value)->val();
+
+        return $this;
+    }
+
+    function __set($name, $value)
+    {
+        die($name . ' - ' . $value);
+    }
+
 
     /**
      * (PHP 5 &gt;= 5.0.0)<br/>
@@ -152,7 +185,11 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function offsetSet($offset, $value)
     {
-        $this->_value[$offset] = $value;
+        if($this->isNull($offset)) {
+            $this->_value[] = $value;
+        } else {
+            $this->_value[$offset] = $value;
+        }
     }
 
     /**

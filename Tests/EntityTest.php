@@ -66,6 +66,8 @@ class EntityTest extends PHPUnit_Framework_TestCase
         $label->getAttribute('label')->setValue('marketing');
         $label2->getAttribute('label')->setValue('seo');
         $page->getAttribute('title')->setValue('First blog post');
+        $page->getAttribute('publishOn')->setValue('2014-11-01');
+        $page->getAttribute('remindOn')->setValue(time());
         $page->getAttribute('author')->setValue($author);
         $page->getAttribute('settings')->setValue([
                                                       'key1' => 'value1',
@@ -105,16 +107,24 @@ class EntityTest extends PHPUnit_Framework_TestCase
 
         /**
          * Get recently saved Page instance and verify values
-         * Must set to self because EntityPool remove method unsets reference
+         * Must set to self because EntityPool 'remove()' method unsets reference
          */
         self::$_page = $page = Page::findById($page->getId()->getValue());
         $this->assertEquals('First blog post', $page->title->getValue());
         $this->assertEquals(2, $page->labels->count());
-        //$this->assertEquals('Pavel Denisjuk', $page->author->name->getValue());
+        $this->assertEquals('Pavel Denisjuk', $page->author->name->getValue());
         $this->assertEquals('Best blog post ever!', $page->comments[0]->text->getValue());
         $this->assertEquals('value1', $page->settings['key1']);
         $this->assertEquals('value3', $page->settings['key2']['key3']);
         $this->assertEquals('seo', $page->labels[1]->label);
+
+        // Test date attributes
+        $createdOn = $page->getAttribute('createdOn')->getValue(true)->format('Y-m-d');
+        $this->assertEquals(date('Y-m-d'), $createdOn);
+        $pubishOn = $page->getAttribute('publishOn')->getValue();
+        $this->assertEquals('2014-11-01', $pubishOn);
+        $remindOn = $page->getAttribute('remindOn')->getValue();
+        $this->assertEquals(date('Y-m-d'), $remindOn);
 
         // Test nested modification
         $page->settings->set('key2.key3', 'changedKey3');
@@ -137,7 +147,7 @@ class EntityTest extends PHPUnit_Framework_TestCase
             'title'  => 12,
             'author' => false
         ];
-        $this->setExpectedException('\Webiny\Component\Entity\Attribute\ValidationException');
+        $this->setExpectedException('\Webiny\Component\Entity\EntityException');
         $page->populate($data);
     }
 
@@ -158,5 +168,39 @@ class EntityTest extends PHPUnit_Framework_TestCase
 
         $author = Author::findById($authorId);
         $this->assertNull($author);
+    }
+
+    public function testSetOnce()
+    {
+        $page = new Page();
+        $page->title = 'Initial title';
+        $page->save();
+
+        $id = $page->getId()->getValue();
+
+        // Completely remove current instance
+        EntityPool::getInstance()->remove($page);
+
+        // Load fresh instance from database
+        $page = Page::findById($id);
+
+        // Disable update of 'title' attribute
+        $page->title->setOnce()->setValue('New title');
+        $this->assertEquals('Initial title', $page->title->getValue());
+
+        $page->populate(['title' => 'Some title']);
+        $this->assertEquals('Initial title', $page->title->getValue());
+
+        // Try populating a null value attribute
+        $page->settings->setOnce()->setValue([]);
+        $this->assertEquals([], $page->settings->getValue());
+        
+        // Try updating an attribute that has a value already assigned to it
+        $page->settings->setValue([1,2,3]);
+        $this->assertEquals([], $page->settings->getValue());
+
+        // Enable update of 'title' attribute
+        $page->title->setOnce(false)->setValue('New title');
+        $this->assertEquals('New title', $page->title->getValue());
     }
 }

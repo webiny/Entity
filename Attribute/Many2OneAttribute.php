@@ -7,8 +7,8 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
+use Webiny\Component\Entity\Entity;
 use Webiny\Component\StdLib\StdLibTrait;
-use Webiny\Component\StdLib\StdObject\StdObjectWrapper;
 
 
 /**
@@ -28,7 +28,11 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function __toString()
     {
-        if ($this->isNull($this->_value)) {
+        if($this->isNull($this->_value) && !$this->isNull($this->_defaultValue)) {
+            return (string)$this->_defaultValue;
+        }
+
+        if($this->isNull($this->_value)) {
             return '';
         }
 
@@ -42,7 +46,7 @@ class Many2OneAttribute extends AttributeAbstract
     public function getId()
     {
         $value = $this->getValue();
-        if ($value) {
+        if($value) {
             return $value->getId();
         }
 
@@ -56,14 +60,31 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function getDbValue()
     {
-        if ($this->isNull($this->getValue())) {
+        $value = $this->getValue();
+        if($this->isNull($value)) {
             return null;
         }
 
-        if ($this->getValue()->getId()->getValue() == null) {
+        // If what we got is a defaultValue - create or load an actual entity instance
+        if($value === $this->_defaultValue) {
+            if($this->isArray($value) || $this->isArrayObject($value)) {
+                $this->_value = new $this->_entityClass;
+                $this->_value->populate($value);
+            }
+
+            if(Entity::getInstance()->getDatabase()->isMongoId($value)) {
+                $this->_value = call_user_func_array([
+                                                         $this->_entityClass,
+                                                         'findById'
+                                                     ], [$value]);
+            }
+        }
+
+        if($this->getValue()->getId()->getValue() == null) {
             $this->getValue()->save();
         }
 
+        // Return a simple Entity ID string
         return $this->getValue()->getId()->getValue();
     }
 
@@ -76,12 +97,7 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function setEntity($entityClass)
     {
-        $entityClass = $this->str($entityClass);
-        if ($entityClass->contains('.')) {
-            $parts = $entityClass->explode('.');
-            $entityClass = '\\WebinyPlatform\\Apps\\' . $parts[0] . '\\Components\\' . $parts[1] . '\\Entities\\' . $parts[2];
-        }
-        $this->_entityClass = StdObjectWrapper::toString($entityClass);
+        $this->_entityClass = $entityClass;
 
         return $this;
     }
@@ -103,7 +119,7 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function getValue()
     {
-        if (!$this->isInstanceOf($this->_value, $this->_entityClass)) {
+        if(!$this->isInstanceOf($this->_value, $this->_entityClass)) {
             $this->_value = call_user_func_array([
                                                      $this->_entityClass,
                                                      'findById'
@@ -111,7 +127,7 @@ class Many2OneAttribute extends AttributeAbstract
             );
         }
 
-        if (!$this->_value && $this->_defaultValue) {
+        if(!$this->_value && !$this->isNull($this->_defaultValue)) {
             return $this->_defaultValue;
         }
 
@@ -127,8 +143,15 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function setValue($value = null)
     {
+        if(!$this->_canAssign()) {
+            return $this;
+        }
+
         $this->validate($value);
-        $this->_value = $value;
+        if($this->_value != $value) {
+            $this->_value = $value;
+            $this->_entity->__setDirty(true);
+        }
 
         return $this;
     }
@@ -169,8 +192,8 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function validate($value)
     {
-        if (!$this->isNull($value) && !$this->isInstanceOf($value, '\Webiny\Component\Entity\EntityAbstract'
-            ) && strlen($value) != 24
+        if(!$this->isNull($value) && !$this->isInstanceOf($value, '\Webiny\Component\Entity\EntityAbstract'
+            ) && !Entity::getInstance()->getDatabase()->isMongoId($value)
         ) {
             throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
                     $this->_attribute,
