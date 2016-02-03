@@ -7,6 +7,8 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
+use Webiny\Component\Entity\Validation\ValidationException;
+
 /**
  * IntegerAttribute
  * @package Webiny\Component\Entity\AttributeType
@@ -17,10 +19,11 @@ class IntegerAttribute extends AttributeAbstract
     public function getDbValue()
     {
         $value = $this->getValue();
-        if($this->isNull($this->_value)){
-            $this->_value = $value;
+        if ($this->isNull($this->value)) {
+            $this->value = $value;
         }
-        return new \MongoInt32($this->_value);
+
+        return $this->processToDbValue(new \MongoInt32($this->value));
     }
 
     /**
@@ -31,21 +34,16 @@ class IntegerAttribute extends AttributeAbstract
      * @throws ValidationException
      * @return $this
      */
-    public function validate(&$value)
+    protected function validate(&$value)
     {
-        if($this->isString($value) && $this->isNumber($value)){
-            if(!$this->str($value)->contains('.') && !$this->str($value)->contains(',')){
+        if ($this->isString($value) && $this->isNumber($value)) {
+            if (!$this->str($value)->contains('.') && !$this->str($value)->contains(',')) {
                 $value = intval($value);
             }
         }
 
         if (!$this->isInteger($value)) {
-            throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                    $this->_attribute,
-                    'integer',
-                    gettype($value)
-                ]
-            );
+            $this->expected('integer', gettype($value));
         }
 
         return $this;

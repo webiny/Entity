@@ -7,6 +7,7 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
+use Webiny\Component\Entity\Validation\ValidationException;
 use Webiny\Component\StdLib\StdObject\DateTimeObject\DateTimeObject;
 use Webiny\Component\StdLib\StdObject\DateTimeObject\DateTimeObjectException;
 
@@ -17,21 +18,27 @@ use Webiny\Component\StdLib\StdObject\DateTimeObject\DateTimeObjectException;
 abstract class DateAttributeAbstract extends AttributeAbstract
 {
 
-    protected $_attributeFormat = 'Y-m-d H:i:s';
+    protected $attributeFormat = 'Y-m-d H:i:s';
 
-    protected $_autoUpdate = false;
+    protected $autoUpdate = false;
 
     public function getDbValue()
     {
-        if ($this->isEmpty($this->_value)) {
-            $this->_setDefaultValue();
+        $value = null;
+
+        if ($this->isEmpty($this->value)) {
+            $this->setDefaultValueInternal();
         }
 
-        if ($this->_autoUpdate) {
-            $this->setValue(date($this->_attributeFormat));
+        if ($this->autoUpdate && $this->entity->exists()) {
+            $this->setValue(date($this->attributeFormat));
         }
 
-        return new \MongoDate(strtotime($this->getValue()));
+        if ($this->getValue()) {
+            $value = new \MongoDate(strtotime($this->getValue()));
+        }
+
+        return $this->processToDbValue($value);
     }
 
     /**
@@ -44,42 +51,43 @@ abstract class DateAttributeAbstract extends AttributeAbstract
      */
     public function setAutoUpdate($flag = true)
     {
-        $this->_autoUpdate = $flag;
+        $this->autoUpdate = $flag;
 
         return $this;
     }
 
-    public function getToArrayValue()
+    public function toArray()
     {
-        return $this->_formatValue(parent::getValue());
+        return $this->processToArrayValue($this->formatValue(parent::getValue()));
     }
 
-    public function setValue($value = null)
+    public function setValue($value = null, $fromDb = false)
     {
         if ($this->isInstanceOf($value, '\MongoDate')) {
             if ($value->sec == 0) {
-                return parent::setValue(null);
+                return parent::setValue(null, $fromDb);
             }
-            $value = (new DateTimeObject($value->sec))->format($this->_attributeFormat);
+            $value = (new DateTimeObject($value->sec))->format($this->attributeFormat);
         }
 
         if ($this->isInstanceOf($value, '\Webiny\Component\StdLib\StdObject\DateTimeObject\DateTimeObject')) {
-            $value = $value->format($this->_attributeFormat);
+            $value = $value->format($this->attributeFormat);
         }
 
         if ($value == 'now') {
-            $value = date($this->_attributeFormat);
+            $value = date($this->attributeFormat);
         }
 
-        return parent::setValue($value);
+        return parent::setValue($value, $fromDb);
     }
 
     public function getValue($asDateTimeObject = false)
     {
-        if($asDateTimeObject){
-            return new DateTimeObject(parent::getValue());
+        if ($asDateTimeObject) {
+            return $this->processGetValue(new DateTimeObject(parent::getValue()));
         }
-        return $this->_formatValue(parent::getValue());
+
+        return $this->processGetValue($this->formatValue(parent::getValue()));
     }
 
     /**
@@ -90,26 +98,21 @@ abstract class DateAttributeAbstract extends AttributeAbstract
      * @throws ValidationException
      * @return $this
      */
-    public function validate(&$value)
+    protected function validate(&$value)
     {
         if ($this->isInstanceOf($value, '\Webiny\Component\StdLib\StdObject\DateTimeObject\DateTimeObject')) {
-            $value = $value->format($this->_attributeFormat);
+            $value = $value->format($this->attributeFormat);
         }
         if ($this->isInstanceOf($value, '\MongoDate')) {
             if ($value->sec == 0) {
                 return $this;
             }
-            $value = (new DateTimeObject($value->sec))->format($this->_attributeFormat);
+            $value = (new DateTimeObject($value->sec))->format($this->attributeFormat);
         }
         try {
             new DateTimeObject($value);
         } catch (DateTimeObjectException $e) {
-            throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                    $this->_attribute,
-                    'Unix timestamp, string or DateTimeObject',
-                    gettype($value)
-                ]
-            );
+            $this->expected('Unix timestamp, string or DateTimeObject', gettype($value));
         }
 
         return $this;
@@ -122,21 +125,21 @@ abstract class DateAttributeAbstract extends AttributeAbstract
      *
      * @return int|null|string
      */
-    private function _formatValue($value)
+    private function formatValue($value)
     {
         if ($this->isNull($value)) {
             return null;
         }
 
-        return (new DateTimeObject($value))->format($this->_attributeFormat);
+        return (new DateTimeObject($value))->format($this->attributeFormat);
     }
 
     /**
      * Set default attribute value
      */
-    private function _setDefaultValue()
+    private function setDefaultValueInternal()
     {
-        $defaultValue = $this->_defaultValue;
+        $defaultValue = $this->defaultValue;
         if ($defaultValue == 'now') {
             $defaultValue = new DateTimeObject('now');
         }

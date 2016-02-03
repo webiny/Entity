@@ -9,6 +9,9 @@ namespace Webiny\Component\Entity\Attribute;
 
 use Traversable;
 use Webiny\Component\Entity\EntityAbstract;
+use Webiny\Component\Entity\EntityException;
+use Webiny\Component\Entity\Validation\ValidationException;
+use Webiny\Component\Entity\Attribute\Exception\ValidationException as AttributeValidationException;
 use Webiny\Component\StdLib\StdObject\ArrayObject\ArrayObject;
 
 /**
@@ -17,66 +20,110 @@ use Webiny\Component\StdLib\StdObject\ArrayObject\ArrayObject;
  */
 class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \ArrayAccess
 {
+    protected $keyValidators = [];
+    protected $keyValidationMessages = [];
+
     public function __construct($attribute, EntityAbstract $entity)
     {
         parent::__construct($attribute, $entity);
-        $this->_value = new ArrayObject();
-        $this->_defaultValue = new ArrayObject();
+        $this->value = new ArrayObject();
+        $this->defaultValue = new ArrayObject();
     }
 
     public function getDbValue()
     {
-        $value = $this->getToArrayValue();
-        if($this->_value->count() == 0){
-            $this->_value = $this->arr($value);
+        if ($this->value->count() == 0) {
+            $value = $this->isStdObject($this->defaultValue) ? $this->defaultValue->val() : $this->defaultValue;
+        } else {
+            $value = $this->value->val();
         }
-        return $value;
+
+        // Make sure it's not an associative array
+        if ((bool)count(array_filter(array_keys($value), 'is_string'))) {
+            $ex = new AttributeValidationException(AttributeValidationException::VALIDATION_FAILED);
+            $ex->addError($this->attribute, 'You should use ObjectAttribute for associative array instead of ArrayAttribute');
+            throw $ex;
+        }
+
+        return $this->processToDbValue($value);
     }
 
-    public function setValue($value = null)
+    public function setValue($value = null, $fromDb = false)
     {
-        if($this->isNull($value)) {
+        if ($this->isNull($value)) {
             $value = new ArrayObject();
         }
 
-        $value = $this->arr($value);
+        parent::setValue($value, $fromDb);
 
-        return parent::setValue($value);
+        $this->value = $this->arr($this->value);
+
+        return $this;
     }
+
+    /**
+     * @inheritDoc
+     */
+    public function setDefaultValue($defaultValue = null)
+    {
+        if (is_array($defaultValue)) {
+            $defaultValue = $this->arr($defaultValue);
+        }
+
+        return parent::setDefaultValue($defaultValue);
+    }
+
+    /**
+     * @inheritDoc
+     */
+    public function getValue()
+    {
+        $defaultValue = new ArrayObject($this->defaultValue);
+        if ($this->value->count() == 0 && $defaultValue->count() > 0) {
+            return $this->processGetValue($this->defaultValue);
+        }
+
+        return $this->processGetValue($this->value);
+    }
+
 
     /**
      * Perform validation against given value
      *
      * @param $value
      *
-     * @throws ValidationException
      * @return $this
+     * @throws AttributeValidationException
+     * @throws ValidationException
      */
-    public function validate(&$value)
+    protected function validate(&$value)
     {
-        if($this->isNull($value)) {
+        if ($this->isNull($value)) {
             return $this;
         }
 
-        if(!$this->isArray($value) && !$this->isArrayObject($value)) {
-            throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                    $this->_attribute,
-                    'array or ArrayObject',
-                    gettype($value)
-                ]
-            );
+        if (!$this->isArray($value) && !$this->isArrayObject($value)) {
+            $this->expected('array or ArrayObject', gettype($value));
         }
+
+        // Call parent method
+        parent::validate($value);
+
+        // Validate array keys
+        $this->validateNestedKeys($value);
 
         return $this;
     }
 
-    public function getToArrayValue()
+    public function toArray()
     {
-        if($this->_value->count() == 0) {
-            return $this->_defaultValue->val();
+        if ($this->value->count() == 0) {
+            $value = $this->isStdObject($this->defaultValue) ? $this->defaultValue->val() : $this->defaultValue;
+
+            return $this->processToArrayValue($value);
         }
 
-        return $this->_value->val();
+        return $this->processToArrayValue($this->value->val());
     }
 
 
@@ -91,18 +138,18 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function get($key, $default = null)
     {
-        return $this->_value->keyNested($key, $default, true);
+        return $this->value->keyNested($key, $default, true);
     }
 
     /**
      * Set value for given key (can be nested key, using dotted notation)
      *
      * @param string $key
-     * @param mixed $value
+     * @param mixed  $value
      */
     public function set($key, $value)
     {
-        $this->_value->keyNested($key, $value);
+        $this->value->keyNested($key, $value);
     }
 
     /**
@@ -114,7 +161,7 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function prepend($value)
     {
-        $this->_value->prepend($value);
+        $this->value->prepend($value);
 
         return $this;
     }
@@ -128,12 +175,59 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function append($value)
     {
-        $this->_value->append($value);
+        $this->value->append($value);
 
         return $this;
     }
 
-    function __set($name, $value)
+    /**
+     * Set key validators
+     *
+     * @param array $validators
+     *
+     * @return $this
+     */
+    public function setKeyValidators(array $validators)
+    {
+        $this->keyValidators = $validators;
+
+        return $this;
+    }
+
+    /**
+     * Get key validators
+     * @return mixed
+     */
+    public function getKeyValidators()
+    {
+        return $this->keyValidators;
+    }
+
+    /**
+     * Set key validation messages
+     *
+     * @param $messages
+     *
+     * @return $this
+     */
+    public function setKeyValidationMessages($messages)
+    {
+        $this->keyValidationMessages = $messages;
+
+        return $this;
+    }
+
+    /**
+     * Get key validation messages
+     *
+     * @return array
+     */
+    public function getKeyValidationMessages()
+    {
+        return $this->keyValidationMessages;
+    }
+
+    public function _set($name, $value)
     {
         $this->offsetSet($name, $value);
     }
@@ -148,7 +242,7 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function getIterator()
     {
-        return new \ArrayIterator($this->_value->val());
+        return new \ArrayIterator($this->value->val());
     }
 
     /**
@@ -167,7 +261,7 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function offsetExists($offset)
     {
-        return isset($this->_value[$offset]);
+        return isset($this->value[$offset]);
     }
 
     /**
@@ -183,7 +277,7 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function offsetGet($offset)
     {
-        return $this->_value[$offset];
+        return $this->value[$offset];
     }
 
     /**
@@ -194,7 +288,7 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      * @param mixed $offset <p>
      *                      The offset to assign the value to.
      *                      </p>
-     * @param mixed $value  <p>
+     * @param mixed $value <p>
      *                      The value to set.
      *                      </p>
      *
@@ -202,10 +296,10 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function offsetSet($offset, $value)
     {
-        if($this->isNull($offset)) {
-            $this->_value[] = $value;
+        if ($this->isNull($offset)) {
+            $this->value[] = $value;
         } else {
-            $this->_value[$offset] = $value;
+            $this->value[$offset] = $value;
         }
     }
 
@@ -222,6 +316,49 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      */
     public function offsetUnset($offset)
     {
-        unset($this->_value[$offset]);
+        unset($this->value[$offset]);
+    }
+
+    /**
+     * @param mixed $data
+     *
+     * @throws Exception\ValidationException
+     */
+    private function validateNestedKeys($data)
+    {
+        $ex = new AttributeValidationException(AttributeValidationException::VALIDATION_FAILED, [$this->attribute]);
+        $messages = $this->getKeyValidationMessages();
+        $keyValidators = $this->getKeyValidators();
+        $errors = [];
+
+        foreach ($keyValidators as $key => $validators) {
+            $keyValue = $this->arr($data)->keyNested($key);
+            if ($this->isString($validators)) {
+                $validators = explode(',', $validators);
+            }
+
+            // Do not validate if attribute value is not required and empty value is given
+            // 'empty' function is not suitable for this check here
+            if (!in_array('required', $validators) && (is_null($keyValue) || $keyValue === '')) {
+                continue;
+            }
+
+            foreach ($validators as $validator) {
+                try {
+                    $this->applyValidator($validator, $key, $keyValue, isset($messages[$key]) ? $messages[$key] : []);
+                } catch (AttributeValidationException $e) {
+                    foreach ($e as $key => $error) {
+                        $errors[$this->attr() . '.' . $key] = $error;
+                    }
+                }
+            }
+        }
+
+        if (count($errors)) {
+            foreach ($errors as $key => $msg) {
+                $ex->addError($key, $msg);
+            }
+            throw $ex;
+        }
     }
 }

@@ -8,6 +8,7 @@
 namespace Webiny\Component\Entity\Attribute;
 
 use Traversable;
+use Webiny\Component\Entity\Entity;
 use Webiny\Component\Entity\EntityAbstract;
 use Webiny\Component\Entity\EntityCollection;
 use Webiny\Component\StdLib\StdLibTrait;
@@ -21,14 +22,16 @@ class One2ManyAttribute extends CollectionAttributeAbstract
 {
     use StdLibTrait;
 
-    protected $_relatedAttribute = null;
-    protected $_filter = [];
-    protected $_onDelete = 'cascade';
+    protected $relatedAttribute = null;
+    protected $filter = [];
+    protected $sorter = [];
+    protected $onDelete = 'cascade';
+    protected $dataLoaded = false;
 
     /**
      * @var null|\Webiny\Component\Entity\EntityAbstract
      */
-    protected $_entity = null;
+    protected $entity = null;
 
     /**
      * @param string         $attribute
@@ -37,20 +40,39 @@ class One2ManyAttribute extends CollectionAttributeAbstract
      */
     public function __construct($attribute, EntityAbstract $entity, $relatedAttribute)
     {
-        $this->_relatedAttribute = $relatedAttribute;
+        $this->relatedAttribute = $relatedAttribute;
         parent::__construct($attribute, $entity);
+    }
+
+    public function isLoaded()
+    {
+        return $this->dataLoaded;
     }
 
     /**
      * Filter returned result set
      *
-     * @param array $filter
+     * @param array|callable $filter
      *
      * @return $this
      */
-    public function setFilter(array $filter)
+    public function setFilter($filter)
     {
-        $this->_filter = $filter;
+        $this->filter = $filter;
+
+        return $this;
+    }
+
+    /**
+     * Sort returned result set
+     *
+     * @param array|string $sorter Ex: ['-order', '+createdOn'] or '-order,+createdOn'
+     *
+     * @return $this
+     */
+    public function setSorter($sorter)
+    {
+        $this->sorter = $this->parseSorter($sorter);
 
         return $this;
     }
@@ -62,7 +84,7 @@ class One2ManyAttribute extends CollectionAttributeAbstract
      */
     public function getOnDelete()
     {
-        return $this->_onDelete;
+        return $this->onDelete;
     }
 
     /**
@@ -78,7 +100,7 @@ class One2ManyAttribute extends CollectionAttributeAbstract
             $action = 'cascade';
         }
 
-        $this->_onDelete = $action;
+        $this->onDelete = $action;
 
         return $this;
     }
@@ -88,16 +110,30 @@ class One2ManyAttribute extends CollectionAttributeAbstract
      */
     public function getRelatedAttribute()
     {
-        return $this->_relatedAttribute;
+        return $this->relatedAttribute;
     }
 
-    public function setValue($value = null)
+    public function setValue($value = null, $fromDb = false)
     {
-        if(!$this->_canAssign()){
+        if ($fromDb) {
+            $this->value = $value;
+
             return $this;
         }
 
-        $this->_value = $value;
+        if (!$this->canAssign()) {
+            return $this;
+        }
+
+        if (!$fromDb) {
+            $value = $this->processSetValue($value);
+
+            // If new value is being set - delete all existing records that are NOT in the new data set
+            $this->cleanUpRecords($value);
+            $this->dataLoaded = true;
+        }
+
+        $this->value = $value;
 
         return $this;
     }
@@ -109,20 +145,91 @@ class One2ManyAttribute extends CollectionAttributeAbstract
      */
     public function getValue()
     {
-        if ($this->isNull($this->_value)) {
+        if ($this->isNull($this->value)) {
+            $entityId = $this->entity->id;
+            $entityId = empty($entityId) ? '__webiny_dummy_id__' : $entityId;
             $query = [
-                $this->_relatedAttribute => $this->_entity->getId()->getValue()
+                $this->relatedAttribute => $entityId
             ];
 
-            $query = array_merge($query, $this->_filter);
+            $filters = $this->filter;
+            if (is_string($filters) || is_callable($filters)) {
+                $callable = is_string($filters) ? [$this->entity, $filters] : $filters;
+                $filters = call_user_func_array($callable, []);
+            }
+
+            $query = array_merge($query, $filters);
 
             $callable = [
-                $this->_entityClass,
+                $this->entityClass,
                 'find'
             ];
-            $this->_value = call_user_func_array($callable, [$query]);
+            $this->value = call_user_func_array($callable, [$query, $this->sorter]);
+            $this->dataLoaded = true;
         }
 
-        return $this->_value;
+        return $this->processGetValue($this->value);
+    }
+
+    public function hasValue()
+    {
+        if ($this->isNull($this->value)) {
+            $entityId = $this->entity->id;
+            $entityId = empty($entityId) ? '__webiny_dummy_id__' : $entityId;
+            $query = [
+                $this->relatedAttribute => $entityId
+            ];
+
+            $entityCollection = call_user_func_array([$this->entityClass, 'getEntityCollection'], []);
+
+            return boolval(Entity::getInstance()->getDatabase()->count($entityCollection, $query));
+        }
+
+        return boolval($this->value);
+    }
+
+    private function parseSorter($fields)
+    {
+        $sorters = [];
+
+        if (is_string($fields)) {
+            $fields = explode(',', $fields);
+        }
+
+        foreach ($fields as $sort) {
+            $sortField = $sort;
+            $sortDirection = 1;
+
+            $sortDirectionSign = substr($sort, 0, 1);
+            if ($sortDirectionSign == '+' || $sortDirectionSign == '-') {
+                $sortField = substr($sort, 1);
+                $sortDirection = $sortDirectionSign == '+' ? 1 : -1;
+            }
+
+            $sorters[$sortField] = $sortDirection;
+        }
+
+        return $sorters;
+    }
+
+    private function cleanUpRecords($newValues)
+    {
+        $newIds = [];
+        foreach ($newValues as $nv) {
+            if (isset($nv['id']) && $nv['id'] != '') {
+                $newIds[] = new \MongoId($nv['id']);
+            }
+        }
+
+        $where = [
+            '_id' => ['$nin' => $newIds]
+        ];
+
+        $where[$this->relatedAttribute] = $this->entity->id;
+
+        $toRemove = call_user_func_array([$this->entityClass, 'find'], [$where]);
+        foreach ($toRemove as $r) {
+            $r->delete();
+        }
     }
 }

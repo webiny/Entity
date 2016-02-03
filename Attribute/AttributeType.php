@@ -26,4 +26,7 @@ class AttributeType
     const ONE2MANY = '\Webiny\Component\Entity\Attribute\One2ManyAttribute';
     const SELECT = '\Webiny\Component\Entity\Attribute\SelectAttribute';
     const TEXT = '\Webiny\Component\Entity\Attribute\TextAttribute';
+    const ARR = '\Webiny\Component\Entity\Attribute\ArrayAttribute';
+    const OBJECT = '\Webiny\Component\Entity\Attribute\ObjectAttribute';
+    const DYNAMIC = '\Webiny\Component\Entity\Attribute\DynamicAttribute';
 }

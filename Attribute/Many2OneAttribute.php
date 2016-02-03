@@ -8,6 +8,8 @@
 namespace Webiny\Component\Entity\Attribute;
 
 use Webiny\Component\Entity\Entity;
+use Webiny\Component\Entity\EntityAbstract;
+use Webiny\Component\Entity\Validation\ValidationException;
 use Webiny\Component\StdLib\StdLibTrait;
 
 
@@ -19,7 +21,14 @@ class Many2OneAttribute extends AttributeAbstract
 {
     use StdLibTrait;
 
-    protected $_entityClass = null;
+    protected $entityClass = null;
+
+    protected $updateExisting = false;
+
+    /**
+     * @var null|\Closure
+     */
+    protected $onSetNullCallback = null;
 
     /**
      * Get masked entity value when instance is being converted to string
@@ -28,11 +37,11 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function __toString()
     {
-        if($this->isNull($this->_value) && !$this->isNull($this->_defaultValue)) {
-            return (string)$this->_defaultValue;
+        if ($this->isNull($this->value) && !$this->isNull($this->defaultValue)) {
+            return (string)$this->defaultValue;
         }
 
-        if($this->isNull($this->_value)) {
+        if ($this->isNull($this->value)) {
             return '';
         }
 
@@ -46,11 +55,36 @@ class Many2OneAttribute extends AttributeAbstract
     public function getId()
     {
         $value = $this->getValue();
-        if($value) {
+        if ($value) {
             return $value->getId();
         }
 
         return null;
+    }
+
+    /**
+     * Allow update of existing entity
+     *
+     * By default, only new Many2One records are created but updates are not allowed.
+     *
+     * @param bool|true $flag
+     *
+     * @return $this
+     */
+    public function setUpdateExisting($flag = true)
+    {
+        $this->updateExisting = $flag;
+
+        return $this;
+    }
+
+    /**
+     * Is update of existing entity allowed?
+     * @return bool
+     */
+    public function getUpdateExisting()
+    {
+        return $this->updateExisting;
     }
 
     /**
@@ -60,32 +94,49 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function getDbValue()
     {
-        $value = $this->getValue();
-        if($this->isNull($value)) {
-            return null;
-        }
+        if (is_null($this->value)) {
+            // Process default value
+            $value = $this->defaultValue;
+            if ($this->isInstanceOf($value, '\Webiny\Component\Entity\EntityAbstract')) {
+                if (!$value->exists()) {
+                    $value->save();
+                }
 
-        // If what we got is a defaultValue - create or load an actual entity instance
-        if($value === $this->_defaultValue) {
-            if($this->isArray($value) || $this->isArrayObject($value)) {
-                $this->_value = new $this->_entityClass;
-                $this->_value->populate($value);
+                $value = $value->id;
             }
 
-            if(Entity::getInstance()->getDatabase()->isMongoId($value)) {
-                $this->_value = call_user_func_array([
-                                                         $this->_entityClass,
-                                                         'findById'
-                                                     ], [$value]);
+            return $this->processToDbValue($value);
+        }
+
+        // Array or string
+        if (!$this->isInstanceOf($this->value, $this->entityClass) && !empty($this->value)) {
+            if ($this->isArray($this->value)) {
+                $id = isset($data['id']) ? $data['id'] : null;
+                if (!$this->getUpdateExisting()) {
+                    return $this->processToDbValue($id);
+                } elseif ($this->getUpdateExisting() && Entity::getInstance()->getDatabase()->isMongoId($id)) {
+                    $this->value = $this->loadEntity($id);
+                    if ($this->value) {
+                        $this->value->populate($data)->save();
+                    } elseif ($data) {
+                        $this->value = new $this->entityClass;
+                        $this->value->populate($data)->save();
+                    }
+
+                    return $this->processToDbValue($this->value->id);
+                }
             }
+
+            // String ID
+            return $this->processToDbValue($this->value);
         }
 
-        if($this->getValue()->getId()->getValue() === null) {
-            $this->getValue()->save();
+        // Entity value
+        if (!$this->value->exists() || $this->getUpdateExisting()) {
+            $this->value->save();
         }
 
-        // Return a simple Entity ID string
-        return $this->getValue()->getId()->getValue();
+        return $this->processToDbValue($this->value->id);
     }
 
     /**
@@ -97,7 +148,7 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function setEntity($entityClass)
     {
-        $this->_entityClass = $entityClass;
+        $this->entityClass = $entityClass;
 
         return $this;
     }
@@ -109,7 +160,7 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function getEntity()
     {
-        return $this->_entityClass;
+        return $this->entityClass;
     }
 
     /**
@@ -119,38 +170,103 @@ class Many2OneAttribute extends AttributeAbstract
      */
     public function getValue()
     {
-        if(!$this->isInstanceOf($this->_value, $this->_entityClass)) {
-            $this->_value = call_user_func_array([
-                                                     $this->_entityClass,
-                                                     'findById'
-                                                 ], [$this->_value]
-            );
+        if (!$this->isInstanceOf($this->value, $this->entityClass) && !empty($this->value)) {
+            $data = null;
+            if ($this->isArray($this->value) || $this->isArrayObject($this->value)) {
+                $data = $this->value;
+                $this->value = isset($data['id']) ? $data['id'] : false;
+            }
+
+            $this->value = $this->loadEntity($this->value);
+
+            if ($this->value) {
+                $this->value->populate($data);
+            } elseif ($data) {
+                $this->value = new $this->entityClass;
+                $this->value->populate($data);
+            }
         }
 
-        if(!$this->_value && !$this->isNull($this->_defaultValue)) {
-            return $this->_defaultValue;
+        if (!$this->value && !$this->isNull($this->defaultValue)) {
+            return $this->processGetValue($this->defaultValue);
         }
 
-        return $this->_value;
+        return $this->processGetValue($this->value);
     }
 
     /**
      * Set attribute value
      *
      * @param null $value
+     * @param bool $fromDb
      *
      * @return $this
+     * @throws \Webiny\Component\Entity\EntityException
      */
-    public function setValue($value = null)
+    public function setValue($value = null, $fromDb = false)
     {
-        if(!$this->_canAssign()) {
+        if ($fromDb) {
+            $this->value = $value;
+
             return $this;
         }
 
+        if (!$this->canAssign()) {
+            return $this;
+        }
+
+        $id = null;
+        $data = [];
+        $entity = null;
+
+        // Normalize $value using one of 5 scenarios:
+        // 1: EntityAbstract instance
+        // 2: ID
+        // 3: Array with ID
+        // 4: Array without ID
+        // 5: null (default)
+        if ($this->isInstanceOf($value, $this->entityClass)) {
+            $id = $value->id;
+            $entity = $value;
+        } elseif (Entity::getInstance()->getDatabase()->isMongoId($value)) {
+            $id = $value;
+        } elseif (is_array($value) && isset($value['id'])) {
+            $id = $value['id'];
+            $data = $value;
+            unset($data['id']);
+        } elseif (is_array($value) && !isset($value['id'])) {
+            $entity = new $this->entityClass;
+            $data = $value;
+        } else {
+            $entity = $value;
+        }
+
+        // Try loading entity with existing ID if not already assigned
+        if ($id && !$entity) {
+            $entity = $this->loadEntity($id);
+        }
+
+        // Optionally, populate entity with new data
+        if ($this->isInstanceOf($entity, $this->entityClass) && (!$entity->exists() || $this->updateExisting)) {
+            $entity->populate($data);
+        }
+
+        // Process onSet() callback
+        $previousValue = $this->getValue();
+        $value = $this->processSetValue($entity);
+
         $this->validate($value);
-        if($this->_value != $value) {
-            $this->_value = $value;
-            $this->_entity->__setDirty(true);
+
+        $this->value = $value;
+
+        // Execute setNull callback
+        if ($this->onSetNullCallback && is_null($this->value) && $previousValue) {
+            $callable = $this->onSetNullCallback;
+            if ($callable == 'delete') {
+                $previousValue->delete();
+            } else {
+                $callable($previousValue);
+            }
         }
 
         return $this;
@@ -177,7 +293,7 @@ class Many2OneAttribute extends AttributeAbstract
      *
      * @return AttributeAbstract
      */
-    public function __get($name)
+    public function _get($name)
     {
         return $this->getAttribute($name);
     }
@@ -190,19 +306,34 @@ class Many2OneAttribute extends AttributeAbstract
      * @throws ValidationException
      * @return $this
      */
-    public function validate(&$value)
+    protected function validate(&$value)
     {
-        if(!$this->isNull($value) && !$this->isInstanceOf($value, '\Webiny\Component\Entity\EntityAbstract'
-            ) && !Entity::getInstance()->getDatabase()->isMongoId($value)
-        ) {
-            throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                    $this->_attribute,
-                    'entity ID, instance of \Webiny\Component\Entity\EntityAbstract or null',
-                    gettype($value)
-                ]
-            );
+        $mongoId = Entity::getInstance()->getDatabase()->isMongoId($value);
+        $abstractEntityClass = '\Webiny\Component\Entity\EntityAbstract';
+
+        if (!$this->isNull($value) && !is_array($value) && !$this->isInstanceOf($value, $abstractEntityClass) && !$mongoId) {
+            $this->expected('entity ID, instance of ' . $abstractEntityClass . ' or null', gettype($value));
         }
 
         return $this;
+    }
+
+    public function onSetNull($callable)
+    {
+        $this->onSetNullCallback = $callable;
+
+        return $this;
+    }
+
+    private function loadEntity($id)
+    {
+        if (!$id) {
+            return null;
+        }
+
+        return call_user_func_array([
+            $this->entityClass,
+            'findById'
+        ], [$id]);
     }
 }

@@ -5,10 +5,10 @@ use Webiny\Component\Entity\EntityAbstract;
 
 class Page extends EntityAbstract
 {
-    protected static $_entityCollection = "Page";
-    protected static $_entityMask = "{title} ({id})";
+    protected static $entityCollection = "Page";
+    protected static $entityMask = "{title} ({id})";
 
-    protected function _entityStructure()
+    protected function entityStructure()
     {
 
         // Char
@@ -36,6 +36,6 @@ class Page extends EntityAbstract
         $this->attr('labels')->many2many('Label2Page')->setEntity('\Webiny\Component\Entity\Tests\Classes\Label');
 
         // Array
-        $this->attr('settings')->arr();
+        $this->attr('settings')->object();
     }
 }

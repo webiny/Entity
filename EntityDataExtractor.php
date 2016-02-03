@@ -11,6 +11,7 @@ use Webiny\Component\Entity\Attribute\AttributeType;
 use Webiny\Component\Mongo\MongoTrait;
 use Webiny\Component\StdLib\SingletonTrait;
 use Webiny\Component\StdLib\StdLibTrait;
+use Webiny\Component\StdLib\StdObject\StringObject\StringObject;
 
 
 /**
@@ -25,24 +26,26 @@ class EntityDataExtractor
     /**
      * @var EntityAbstract
      */
-    protected $_entity;
+    protected $entity;
 
-    protected static $_loadedEntities = null;
-
-    protected static $_currentLevel = 0;
-    protected $_nestedLevel = 1;
+    protected static $currentLevel = 0;
+    protected $nestedLevel = 1;
+    protected $aliases = [];
+    protected $dottedFields = ['_name'];
 
     public function __construct(EntityAbstract $entity, $nestedLevel = 1)
     {
         if ($nestedLevel < 0) {
             $nestedLevel = 1;
         }
-        $this->_entity = $entity;
-        $this->_nestedLevel = $nestedLevel;
 
-        if (!self::$_loadedEntities) {
-            self::$_loadedEntities = $this->arr();
+        // Do not allow depth greater than 10
+        if ($nestedLevel > 10) {
+            $nestedLevel = 10;
         }
+
+        $this->entity = $entity;
+        $this->nestedLevel = $nestedLevel;
     }
 
     /**
@@ -56,59 +59,102 @@ class EntityDataExtractor
      */
     public function extractData($attributes = [])
     {
-        $checkKey = get_class($this->_entity) . '-' . $this->_entity->getId();
-        if (self::$_loadedEntities->keyExists($checkKey)) {
-            return [
-                '__reference__' => true,
-                'class'         => get_class($this->_entity),
-                'id'            => $this->_entity->getId()->getValue()
-            ];
-        } else {
-            self::$_loadedEntities->key($checkKey, true);
-        }
-
         if ($this->isEmpty($attributes)) {
-            $attributes = $this->_getDefaultAttributes();
+            $attributes = $this->getDefaultAttributes();
         }
 
         $data = [];
-        $attributes = $this->_buildEntityFields($attributes);
+        $attributes = $this->buildEntityFields($attributes);
 
         foreach ($attributes as $attr => $subAttributes) {
-            $entityAttribute = $this->_entity->getAttribute($attr);
+            if ($attr == '_name') {
+                continue;
+            }
+
+            try {
+                $entityAttribute = $this->entity->getAttribute($attr);
+            } catch (EntityException $e) {
+                continue;
+            }
+
             $entityAttributeValue = $entityAttribute->getValue();
             $isOne2Many = $this->isInstanceOf($entityAttribute, AttributeType::ONE2MANY);
             $isMany2Many = $this->isInstanceOf($entityAttribute, AttributeType::MANY2MANY);
             $isMany2One = $this->isInstanceOf($entityAttribute, AttributeType::MANY2ONE);
+            $isArray = $this->isInstanceOf($entityAttribute, AttributeType::ARR);
+            $isObject = $this->isInstanceOf($entityAttribute, AttributeType::OBJECT);
 
             if ($isMany2One) {
                 if ($this->isNull($entityAttributeValue)) {
                     $data[$attr] = null;
                     continue;
                 }
-                if (self::$_currentLevel < $this->_nestedLevel) {
-                    self::$_currentLevel++;
-                    $attrDataExtractor = new EntityDataExtractor($entityAttributeValue, $this->_nestedLevel);
-                    $data[$attr] = $attrDataExtractor->extractData($subAttributes);
-                    self::$_currentLevel--;
+
+                if ($entityAttribute->hasToArrayCallback()) {
+                    $data[$attr] = $entityAttribute->toArray();
+                    continue;
+                }
+
+                if (self::$currentLevel < $this->nestedLevel) {
+                    self::$currentLevel++;
+                    $data[$attr] = $entityAttributeValue->toArray($subAttributes, $this->nestedLevel);
+                    self::$currentLevel--;
                 }
             } elseif ($isOne2Many || $isMany2Many) {
                 $data[$attr] = [];
                 foreach ($entityAttributeValue as $item) {
-                    if (self::$_currentLevel < $this->_nestedLevel) {
-                        self::$_currentLevel++;
-                        $attrDataExtractor = new EntityDataExtractor($item, $this->_nestedLevel);
-                        $data[$attr][] = $attrDataExtractor->extractData($subAttributes);
-                        self::$_currentLevel--;
+                    if (self::$currentLevel < $this->nestedLevel) {
+                        self::$currentLevel++;
+                        $data[$attr][] = $item->toArray($subAttributes, $this->nestedLevel);
+                        self::$currentLevel--;
                     }
                 }
+            } elseif ($isObject) {
+                $data[$attr] = $entityAttribute->toArray();
+            } elseif ($isArray) {
+                $value = $entityAttribute->toArray();
+                if ($subAttributes) {
+                    $subValues = [];
+                    foreach ($value as $array) {
+                        $subValues[] = $this->getSubAttributesFromArray($subAttributes, $array);
+                    }
+                    $value = $subValues;
+                    $value['__webiny_array__'] = true;
+                }
+
+                $data[$attr] = $value;
             } else {
-                $data[$attr] = $entityAttribute->getToArrayValue();
+                $data[$attr] = $entityAttribute->toArray();
             }
         }
-        self::$_loadedEntities->removeKey($checkKey);
+        $data['_name'] = $this->entity->getMaskedValue();
 
-        return $data;
+        // Populate alias value
+        $copy = $data;
+        $data = $this->arr($data);
+
+        // If aliases were used, recreate the entire array to remove junk keys of aliased attributes
+        if (count($this->aliases)) {
+            $cleanData = $this->arr();
+            foreach ($this->dottedFields as $key) {
+                if (array_key_exists($key, $this->aliases)) {
+                    $cleanData->keyNested($this->aliases[$key], $data->keyNested($key), true);
+                    continue;
+                }
+                $cleanData->keyNested($key, $data->keyNested($key), true);
+            }
+            $data = $cleanData;
+        }
+
+        // Copy ArrayAttribute value from backup
+        foreach ($copy as $key => $value) {
+            if (is_array($value) && array_key_exists('__webiny_array__', $value)) {
+                unset($value['__webiny_array__']);
+                $data[$key] = $value;
+            }
+        }
+
+        return $data->val();
     }
 
     /**
@@ -119,59 +165,173 @@ class EntityDataExtractor
      *
      * @return array
      */
-    private function _buildEntityFields($fields)
+    private function buildEntityFields($fields)
     {
         if (!$this->isArray($fields)) {
-            $fields = $this->str($fields)->explode(',')->filter()->map('trim')->val();
+            $fields = $this->str($fields);
+
+            if ($fields->contains('[')) {
+                $fields = $this->parseGroupedNestedFields($fields);
+            }
+
+            $fields = $fields->explode(',')->filter()->map('trim')->val();
         } else {
             // Check if asterisk is present and replace it with actual attribute names
             if ($this->arr($fields)->keyExists('*')) {
                 unset($fields['*']);
-                $defaultFields = $this->str($this->_getDefaultAttributes())
-                                      ->explode(',')
-                                      ->filter()
-                                      ->map('trim')
-                                      ->flip()
-                                      ->val();
+                $defaultFields = $this->str($this->getDefaultAttributes())->explode(',')->filter()->map('trim')->flip()->val();
                 $fields = $this->arr($fields)->merge($defaultFields)->val();
             }
 
             return $fields;
         }
-        $parsedFields = [];
+
+        $parsedFields = $this->arr();
+        $unsetFields = [];
 
         foreach ($fields as $f) {
-            if ($f == '*') {
-                $defaultFields = $this->str($this->_getDefaultAttributes())->explode(',')->filter()->map('trim')->val();
+            $f = $this->str($f);
+
+            if ($f->contains('@')) {
+                list($f, $alias) = $f->explode('@')->val();
+                $this->aliases[$f] = $alias;
+                $f = $this->str($f);
+            }
+
+            $this->dottedFields[] = $f->val();
+
+            if ($f->startsWith('!')) {
+                $unsetFields[] = $f->trimLeft('!')->val();
+                continue;
+            }
+
+            if ($f->val() == '*') {
+                $defaultFields = $this->str($this->getDefaultAttributes())->explode(',')->filter()->map('trim')->val();
                 foreach ($defaultFields as $df) {
-                    $this->_buildFields($parsedFields, $df);
+                    $this->buildFields($parsedFields, $this->str($df));
                 }
                 continue;
             }
-            $this->_buildFields($parsedFields, $f);
+            $this->buildFields($parsedFields, $f);
         }
 
-        return $parsedFields;
+        foreach ($unsetFields as $field) {
+            $parsedFields->removeKey($field);
+        }
+
+        return $parsedFields->val();
+    }
+
+    /**
+     * Check if there are grouped nested keys (by using '[' and ']' and converts that string
+     * into a plain version - a string that only contains comma-separated full paths of each field
+     *
+     * @param $string
+     *
+     * @return StringObject
+     */
+    private function parseGroupedNestedFields(StringObject $string)
+    {
+        $output = $this->str('');
+        $currentPath = [
+            'array'  => [],
+            'string' => ''
+        ];
+
+        $parts = $string->explode('[');
+        $lastPart = $parts->count() - 1;
+
+        foreach ($parts as $index => $part) {
+
+            $fields = explode(',', $part);
+
+            $isLast = $index == $lastPart;
+
+            if (!$isLast) {
+                $newNestedKey = array_pop($fields) . '.';
+            }
+
+            foreach ($fields as $field) {
+
+                $fullPath = '';
+
+                if (substr($field, 0, 1) == '!') {
+                    $fullPath = '!';
+                    $field = ltrim($field, '!');
+                }
+
+                $closingBrackets = substr_count($field, ']');
+                $field = rtrim($field, ']');
+
+                $fullPath .= $currentPath['string'] . $field;
+
+                $output->append($fullPath . ',');
+
+                if ($closingBrackets > 0) {
+                    $currentPath['array'] = array_slice($currentPath['array'], 0, count($currentPath['array']) - $closingBrackets);
+                    $currentPath['string'] = implode('.', $currentPath['array']);
+                }
+            }
+
+            if (!$isLast) {
+                $currentPath['string'] .= $newNestedKey;
+                $currentPath['array'][] = $newNestedKey;
+            }
+        }
+
+        return $output->trimRight(',');
     }
 
     /**
      * Parse attribute key recursively
      *
-     * @param $parsedFields Reference to array of parsed fields
-     * @param $key          Current key to parse
+     * @param array        $parsedFields Reference to array of parsed fields
+     * @param StringObject $key Current key to parse
      */
-    private function _buildFields(&$parsedFields, $key)
+    private function buildFields(&$parsedFields, StringObject $key)
     {
-        if ($this->str($key)->contains('.')) {
-            $parts = $this->str($key)->explode('.', 2)->val();
+        if ($key->contains('.')) {
+            $parts = $key->explode('.', 2)->val();
             if (!isset($parsedFields[$parts[0]])) {
                 $parsedFields[$parts[0]] = [];
             }
 
-            $this->_buildFields($parsedFields[$parts[0]], $parts[1]);
+            $this->buildFields($parsedFields[$parts[0]], $this->str($parts[1]));
         } else {
-            $parsedFields[$key] = '';
+            $parsedFields[$key->val()] = '';
         }
+    }
+
+    private function buildNestedKeys($fields)
+    {
+        $keys = [];
+        foreach ($fields as $f => $nestedFields) {
+            if (is_array($nestedFields)) {
+                $nestedKeys = $this->buildNestedKeys($nestedFields);
+                foreach ($nestedKeys as $k) {
+                    $keys[] = $f . '.' . $k;
+                }
+            } else {
+                $keys[] = $f;
+            }
+        }
+
+        return $keys;
+    }
+
+    private function getSubAttributesFromArray($subAttributes, $array)
+    {
+        $keys = $this->buildNestedKeys($subAttributes);
+
+        $value = $this->arr();
+        $entityAttributeValue = $this->arr($array);
+
+        foreach ($keys as $key) {
+            $key = $this->str($key);
+            $value->keyNested($key, $entityAttributeValue->keyNested($key), true);
+        }
+
+        return $value->val();
     }
 
     /**
@@ -180,14 +340,19 @@ class EntityDataExtractor
      *
      * @return string
      */
-    private function _getDefaultAttributes()
+    private function getDefaultAttributes()
     {
         $attributes = [];
-        foreach ($this->_entity->getAttributes() as $name => $attribute) {
-            $isOne2Many = $this->isInstanceOf($attribute, AttributeType::ONE2MANY);
-            $isMany2Many = $this->isInstanceOf($attribute, AttributeType::MANY2MANY);
+        foreach ($this->entity->getAttributes() as $name => $attribute) {
+            $default = [
+                $this->isInstanceOf($attribute, AttributeType::ONE2MANY),
+                $this->isInstanceOf($attribute, AttributeType::MANY2MANY),
+                $this->isInstanceOf($attribute, AttributeType::MANY2ONE),
+                $this->isInstanceOf($attribute, AttributeType::ARR),
+                $this->isInstanceOf($attribute, AttributeType::OBJECT)
+            ];
 
-            if ($isOne2Many || $isMany2Many) {
+            if (in_array(true, $default)) {
                 continue;
             }
 

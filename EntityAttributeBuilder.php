@@ -12,14 +12,17 @@ use Webiny\Component\Entity\Attribute\BooleanAttribute;
 use Webiny\Component\Entity\Attribute\CharAttribute;
 use Webiny\Component\Entity\Attribute\DateAttribute;
 use Webiny\Component\Entity\Attribute\DateTimeAttribute;
+use Webiny\Component\Entity\Attribute\DynamicAttribute;
 use Webiny\Component\Entity\Attribute\FloatAttribute;
 use Webiny\Component\Entity\Attribute\IntegerAttribute;
 use Webiny\Component\Entity\Attribute\Many2ManyAttribute;
 use Webiny\Component\Entity\Attribute\Many2OneAttribute;
+use Webiny\Component\Entity\Attribute\ObjectAttribute;
 use Webiny\Component\Entity\Attribute\One2ManyAttribute;
 use Webiny\Component\Entity\Attribute\SelectAttribute;
 use Webiny\Component\Entity\Attribute\TextAttribute;
 use Webiny\Component\StdLib\SingletonTrait;
+use Webiny\Component\StdLib\StdObject\ArrayObject\ArrayObject;
 
 
 /**
@@ -28,33 +31,17 @@ use Webiny\Component\StdLib\SingletonTrait;
  */
 class EntityAttributeBuilder
 {
-    use SingletonTrait;
-
-    protected $_entity;
-    protected $_attributes;
-    protected $_attribute;
+    protected $entity;
+    protected $attributes;
+    protected $attribute;
 
     /**
-     * Set EntityAttributeBuilder context: Entity attributes array and current attribute
-     *
-     * @param $attributes
-     * @param $attribute
-     *
-     * @return $this
+     * @inheritDoc
      */
-    public function __setContext($attributes, $attribute)
+    function __construct(EntityAbstract $entity, ArrayObject $attributes)
     {
-        $this->_attributes = $attributes;
-        $this->_attribute = $attribute;
-
-        return $this;
-    }
-
-    public function __setEntity(EntityAbstract $entity)
-    {
-        $this->_entity = $entity;
-
-        return $this;
+        $this->entity = $entity;
+        $this->attributes = $attributes;
     }
 
     /**
@@ -66,7 +53,7 @@ class EntityAttributeBuilder
      */
     public function attr($attribute)
     {
-        $this->_attribute = $attribute;
+        $this->attribute = $attribute;
 
         return $this;
     }
@@ -76,7 +63,7 @@ class EntityAttributeBuilder
      */
     public function boolean()
     {
-        return $this->_attributes[$this->_attribute] = new BooleanAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new BooleanAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -84,7 +71,15 @@ class EntityAttributeBuilder
      */
     public function arr()
     {
-        return $this->_attributes[$this->_attribute] = new ArrayAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new ArrayAttribute($this->attribute, $this->entity);
+    }
+
+    /**
+     * @return ObjectAttribute
+     */
+    public function object()
+    {
+        return $this->attributes[$this->attribute] = new ObjectAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -92,7 +87,7 @@ class EntityAttributeBuilder
      */
     public function integer()
     {
-        return $this->_attributes[$this->_attribute] = new IntegerAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new IntegerAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -100,7 +95,7 @@ class EntityAttributeBuilder
      */
     public function char()
     {
-        return $this->_attributes[$this->_attribute] = new CharAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new CharAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -108,7 +103,7 @@ class EntityAttributeBuilder
      */
     public function text()
     {
-        return $this->_attributes[$this->_attribute] = new TextAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new TextAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -116,7 +111,7 @@ class EntityAttributeBuilder
      */
     public function select()
     {
-        return $this->_attributes[$this->_attribute] = new SelectAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new SelectAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -124,7 +119,7 @@ class EntityAttributeBuilder
      */
     public function datetime()
     {
-        return $this->_attributes[$this->_attribute] = new DateTimeAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new DateTimeAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -132,7 +127,7 @@ class EntityAttributeBuilder
      */
     public function date()
     {
-        return $this->_attributes[$this->_attribute] = new DateAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new DateAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -140,7 +135,7 @@ class EntityAttributeBuilder
      */
     public function float()
     {
-        return $this->_attributes[$this->_attribute] = new FloatAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new FloatAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -148,7 +143,7 @@ class EntityAttributeBuilder
      */
     public function many2one()
     {
-        return $this->_attributes[$this->_attribute] = new Many2OneAttribute($this->_attribute, $this->_entity);
+        return $this->attributes[$this->attribute] = new Many2OneAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -158,9 +153,7 @@ class EntityAttributeBuilder
      */
     public function one2many($relatedAttribute)
     {
-        return $this->_attributes[$this->_attribute] = new One2ManyAttribute($this->_attribute, $this->_entity,
-                                                                             $relatedAttribute
-        );
+        return $this->attributes[$this->attribute] = new One2ManyAttribute($this->attribute, $this->entity, $relatedAttribute);
     }
 
     /**
@@ -170,8 +163,16 @@ class EntityAttributeBuilder
      */
     public function many2many($collectionName)
     {
-        return $this->_attributes[$this->_attribute] = new Many2ManyAttribute($this->_attribute, $this->_entity,
-                                                                              $collectionName
-        );
+        return $this->attributes[$this->attribute] = new Many2ManyAttribute($this->attribute, $this->entity, $collectionName);
+    }
+
+    /**
+     * @param callable $callable
+     *
+     * @return DynamicAttribute
+     */
+    public function dynamic($callable)
+    {
+        return $this->attributes[$this->attribute] = new DynamicAttribute($this->attribute, $this->entity, $callable);
     }
 }

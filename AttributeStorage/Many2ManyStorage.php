@@ -10,6 +10,7 @@ namespace Webiny\Component\Entity\AttributeStorage;
 use Webiny\Component\Entity\Attribute\Many2ManyAttribute;
 use Webiny\Component\Entity\Entity;
 use Webiny\Component\Entity\EntityAbstract;
+use Webiny\Component\Entity\EntityCollection;
 use Webiny\Component\Mongo\MongoTrait;
 use Webiny\Component\StdLib\SingletonTrait;
 use Webiny\Component\StdLib\StdLibTrait;
@@ -22,27 +23,32 @@ class Many2ManyStorage
 {
     use StdLibTrait, SingletonTrait, MongoTrait;
 
+    /**
+     * Load many2many attribute value (prepares MongoCursor, lazy loads data)
+     *
+     * @param Many2ManyAttribute $attribute
+     *
+     * @return EntityCollection
+     */
     public function load(Many2ManyAttribute $attribute)
     {
-        $firstClassName = $this->_extractClassName($attribute->getParentEntity());
-        $secondClassName = $this->_extractClassName($attribute->getEntity());
+        $firstClassName = $this->extractClassName($attribute->getParentEntity());
+        $secondClassName = $this->extractClassName($attribute->getEntity());
 
         // Select related IDs from aggregation table
         $query = [
-            $firstClassName => $attribute->getParentEntity()->getId()->getValue()
+            $firstClassName => $attribute->getParentEntity()->id
         ];
 
-        $relatedObjects = Entity::getInstance()->getDatabase()->find($attribute->getIntermediateCollection(), $query,
-                                                                     [$secondClassName]
-        );
+        $relatedObjects = Entity::getInstance()->getDatabase()->find($attribute->getIntermediateCollection(), $query, [$secondClassName]);
         $relatedIds = [];
         foreach ($relatedObjects as $rObject) {
-            $relatedIds[] = Entity::getInstance()->getDatabase()->id($rObject[$secondClassName]);
+            $relatedIds[] = $rObject[$secondClassName];
         }
 
         // Find all related entities using $relatedIds
         $query = [
-            '_id' => ['$in' => $relatedIds]
+            'id' => ['$in' => $relatedIds]
         ];
 
         $callable = [
@@ -53,18 +59,36 @@ class Many2ManyStorage
         return call_user_func_array($callable, [$query]);
     }
 
+    /**
+     * Count many2many attribute values
+     *
+     * @param Many2ManyAttribute $attribute
+     *
+     * @return EntityCollection
+     */
+    public function count(Many2ManyAttribute $attribute)
+    {
+        $firstClassName = $this->extractClassName($attribute->getParentEntity());
+        $secondClassName = $this->extractClassName($attribute->getEntity());
+
+        // Select related IDs from aggregation table
+        $query = [
+            $firstClassName => $attribute->getParentEntity()->id
+        ];
+
+        return Entity::getInstance()->getDatabase()->count($attribute->getIntermediateCollection(), $query, [$secondClassName]);
+    }
+
     public function save(Many2ManyAttribute $attribute)
     {
         $collectionName = $attribute->getIntermediateCollection();
-        $firstClassName = $this->_extractClassName($attribute->getParentEntity());
-        $secondClassName = $this->_extractClassName($attribute->getEntity());
+        $firstClassName = $this->extractClassName($attribute->getParentEntity());
+        $secondClassName = $this->extractClassName($attribute->getEntity());
 
         // Ensure index
-        list($indexKey1, $indexKey2) = $this->arr([
-                                                      $firstClassName,
-                                                      $secondClassName
-                                                  ]
-        )->sort()->val();
+        $indexOrder = [$firstClassName, $secondClassName];
+        list($indexKey1, $indexKey2) = $this->arr($indexOrder)->sort()->val();
+
         $index = [
             $indexKey1 => 1,
             $indexKey2 => 1
@@ -81,14 +105,14 @@ class Many2ManyStorage
                 $item->save();
             }
             $secondEntityId = $item->getId()->getValue();
-            $query = $this->arr([
-                                    $firstClassName  => $firstEntityId,
-                                    $secondClassName => $secondEntityId
-                                ]
-            )->sortKey()->val();
+
+            $data = [
+                $firstClassName  => $firstEntityId,
+                $secondClassName => $secondEntityId
+            ];
 
             try {
-                Entity::getInstance()->getDatabase()->insert($collectionName, $query);
+                Entity::getInstance()->getDatabase()->insert($collectionName, $this->arr($data)->sortKey()->val());
             } catch (\MongoException $e) {
                 continue;
             }
@@ -122,13 +146,12 @@ class Many2ManyStorage
             return;
         }
 
-        $firstClassName = $this->_extractClassName($attribute->getParentEntity());
-        $secondClassName = $this->_extractClassName($attribute->getEntity());
+        $firstClassName = $this->extractClassName($attribute->getParentEntity());
+        $secondClassName = $this->extractClassName($attribute->getEntity());
         $query = $this->arr([
-                                $firstClassName  => $sourceEntityId,
-                                $secondClassName => $item
-                            ]
-        )->sortKey()->val();
+            $firstClassName  => $sourceEntityId,
+            $secondClassName => $item
+        ])->sortKey()->val();
 
         $res = Entity::getInstance()->getDatabase()->remove($attribute->getIntermediateCollection(), $query);
 
@@ -142,7 +165,7 @@ class Many2ManyStorage
      *
      * @return string
      */
-    private function _extractClassName($class)
+    private function extractClassName($class)
     {
         if (!$this->isString($class)) {
             $class = get_class($class);

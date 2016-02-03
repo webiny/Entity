@@ -7,6 +7,8 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
+use Webiny\Component\StdLib\StdObject\StdObjectWrapper;
+
 
 /**
  * BooleanAttribute
@@ -19,20 +21,19 @@ class BooleanAttribute extends AttributeAbstract
      *
      * @param $value
      *
-     * @throws ValidationException
      * @return $this
      */
-    public function validate(&$value)
+    protected function validate(&$value)
     {
-        if (!$this->isBool($value)) {
-            throw new ValidationException(ValidationException::ATTRIBUTE_VALIDATION_FAILED, [
-                    $this->_attribute,
-                    'boolean',
-                    gettype($value)
-                ]
-            );
-        }
+        $value = StdObjectWrapper::toBool($value);
+
+        parent::validate($value);
 
         return $this;
+    }
+
+    public function toArray()
+    {
+        return $this->processToArrayValue(StdObjectWrapper::toBool(parent::toArray()));
     }
 }
