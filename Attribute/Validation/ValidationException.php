@@ -4,16 +4,17 @@
  *
  * @copyright Copyright Webiny LTD
  */
-namespace Webiny\Component\Entity\Attribute\Exception;
+namespace Webiny\Component\Entity\Attribute\Validation;
 
-use Webiny\Component\StdLib\Exception\ExceptionAbstract;
+use Traversable;
+use Webiny\Component\StdLib\Exception\AbstractException;
 
 /**
  * Exception class for the Entity attribute
  *
  * @package         Webiny\Component\Entity
  */
-class ValidationException extends ExceptionAbstract implements \IteratorAggregate
+class ValidationException extends AbstractException implements \IteratorAggregate
 {
     const VALIDATION_FAILED = 101;
     const DATA_TYPE = 102;
@@ -43,7 +44,7 @@ class ValidationException extends ExceptionAbstract implements \IteratorAggregat
      */
     public function addError($key, $message, $params = null)
     {
-        if ($params !== null) {
+        if ($params !== null && is_int($message)) {
             $message = vsprintf(static::$messages[$message], $params);
         }
         $this->errors[$key] = $message;
@@ -73,4 +74,13 @@ class ValidationException extends ExceptionAbstract implements \IteratorAggregat
 
         return $this;
     }
+
+    /**
+     * @param null $attribute
+     */
+    public function setAttribute($attribute)
+    {
+        $this->attribute = $attribute;
+    }
+
 }

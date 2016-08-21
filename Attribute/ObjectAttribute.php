@@ -7,11 +7,7 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
-use Traversable;
-use Webiny\Component\Entity\EntityAbstract;
-use Webiny\Component\Entity\Validation\ValidationException;
-use Webiny\Component\Entity\Attribute\Exception\ValidationException as AttributeValidationException;
-use Webiny\Component\StdLib\StdObject\ArrayObject\ArrayObject;
+use MongoDB\Model\BSONDocument;
 
 /**
  * ObjectAttribute
@@ -21,17 +17,49 @@ class ObjectAttribute extends ArrayAttribute
 {
     public function getDbValue()
     {
-        if ($this->value->count() == 0) {
-            $value = $this->isStdObject($this->defaultValue) ? $this->defaultValue->val() : $this->defaultValue;
-        } else {
-            $value = $this->value->val();
+        $value = $this->getValue();
+        if (count($value) == 0) {
+            $defaultValue = $this->getDefaultValue();
+            $value = $this->isStdObject($defaultValue) ? $defaultValue->val() : $defaultValue;
+        }
+
+        if ($this->isStdObject($value)) {
+            $value = $value->val();
         }
 
         // This will force mongo to store empty object and not array
-        if(count($value) == 0){
+        if (count($value) == 0) {
             return new \stdClass();
         }
 
         return $this->processToDbValue($value);
+    }
+
+    public function setValue($value = null, $fromDb = false)
+    {
+        if ($fromDb && $value instanceof BSONDocument) {
+            $value = $this->convertToArray($value->getArrayCopy());
+        }
+
+        return parent::setValue($value, $fromDb);
+    }
+
+    public function toArray($params = [])
+    {
+        $value = $this->getValue($params);
+        if ($this->isStdObject($value)) {
+            $value = $value->val();
+        }
+
+        if (count($value) == 0) {
+            $defaultValue = $this->getDefaultValue();
+            $value = $this->isStdObject($defaultValue) ? $defaultValue->val() : $defaultValue;
+
+            if (count($value) === 0) {
+                $value = new \stdClass();
+            }
+        }
+
+        return $this->processToArrayValue($value);
     }
 }

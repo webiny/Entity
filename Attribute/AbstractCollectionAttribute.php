@@ -7,17 +7,18 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
-use Webiny\Component\Entity\EntityAbstract;
+use Webiny\Component\Entity\AbstractEntity;
 use Webiny\Component\Entity\EntityCollection;
+use Webiny\Component\Entity\EntityException;
 use Webiny\Component\StdLib\StdLibTrait;
 use Webiny\Component\StdLib\StdObject\StdObjectWrapper;
 
 
 /**
- * CollectionAttributeAbstract
+ * AbstractCollectionAttribute
  * @package Webiny\Component\Entity\AttributeType
  */
-abstract class CollectionAttributeAbstract extends AttributeAbstract implements \IteratorAggregate, \ArrayAccess
+abstract class AbstractCollectionAttribute extends AbstractAttribute implements \IteratorAggregate, \ArrayAccess
 {
     use StdLibTrait;
 
@@ -53,6 +54,8 @@ abstract class CollectionAttributeAbstract extends AttributeAbstract implements 
      *
      * @param $item
      *
+     * TODO: remove this method and update unit tests
+     *
      * @return $this
      */
     public function add($item)
@@ -83,23 +86,17 @@ abstract class CollectionAttributeAbstract extends AttributeAbstract implements 
 
 
     /**
-     * Set related entity class for this attribute<br>
-     * You can either use absolute namespace path or <b>App.Component.Entity</b> notation:<br><br>
-     *
-     * <b>'Cms.Content.PageEntity'</b> will be translated to: <b>'\WebinyPlatform\Apps\Cms\Components\Content\Entities\PageEntity'</b>
+     * Set related entity class for this attribute
      *
      * @param string $entityClass
      *
      * @return $this
+     * @throws EntityException
      */
     public function setEntity($entityClass)
     {
-        $entityClass = $this->str($entityClass);
-        if ($entityClass->contains('.')) {
-            $parts = $entityClass->explode('.');
-            $entityClass = '\\WebinyPlatform\\Apps\\' . $parts[0] . '\\Components\\' . $parts[1] . '\\Entities\\' . $parts[2];
-        }
-        $this->entityClass = StdObjectWrapper::toString($entityClass);
+        class_exists($entityClass);
+        $this->entityClass = $entityClass;
 
         return $this;
     }
@@ -116,18 +113,18 @@ abstract class CollectionAttributeAbstract extends AttributeAbstract implements 
 
     /**
      * Returns entity instance to which this attribute belongs
-     * @return EntityAbstract
+     * @return AbstractEntity
      */
     public function getParentEntity()
     {
-        return $this->entity;
+        return $this->parent;
     }
 
     /**
      * (PHP 5 &gt;= 5.0.0)<br/>
      * Retrieve an external iterator
      * @link http://php.net/manual/en/iteratoraggregate.getiterator.php
-     * @return Traversable An instance of an object implementing <b>Iterator</b> or
+     * @return \Traversable An instance of an object implementing <b>Iterator</b> or
      * <b>Traversable</b>
      */
     public function getIterator()
@@ -178,7 +175,7 @@ abstract class CollectionAttributeAbstract extends AttributeAbstract implements 
      * @param mixed $offset <p>
      *                      The offset to assign the value to.
      *                      </p>
-     * @param mixed $value  <p>
+     * @param mixed $value <p>
      *                      The value to set.
      *                      </p>
      *

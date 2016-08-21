@@ -7,13 +7,13 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
-use Webiny\Component\Entity\Validation\ValidationException;
+use Webiny\Component\Entity\Attribute\Validation\ValidationException;
 
 /**
  * IntegerAttribute
  * @package Webiny\Component\Entity\AttributeType
  */
-class IntegerAttribute extends AttributeAbstract
+class IntegerAttribute extends AbstractAttribute
 {
 
     public function getDbValue()
@@ -23,8 +23,21 @@ class IntegerAttribute extends AttributeAbstract
             $this->value = $value;
         }
 
-        return $this->processToDbValue(new \MongoInt32($this->value));
+        return $this->processToDbValue((int)$this->value);
     }
+
+    /**
+     * Get value that will be used to represent this attribute when converting AbstractEntity to array
+     *
+     * @param array $params
+     *
+     * @return string
+     */
+    public function toArray($params = [])
+    {
+        return (int)parent::toArray($params);
+    }
+
 
     /**
      * Perform validation against given value
@@ -45,6 +58,8 @@ class IntegerAttribute extends AttributeAbstract
         if (!$this->isInteger($value)) {
             $this->expected('integer', gettype($value));
         }
+
+        parent::validate($value);
 
         return $this;
     }

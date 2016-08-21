@@ -14,7 +14,7 @@ use Webiny\Component\StdLib\StdObject\StdObjectWrapper;
  * BooleanAttribute
  * @package Webiny\Component\Entity\AttributeType
  */
-class BooleanAttribute extends AttributeAbstract
+class BooleanAttribute extends AbstractAttribute
 {
     /**
      * Perform validation against given value
@@ -32,8 +32,8 @@ class BooleanAttribute extends AttributeAbstract
         return $this;
     }
 
-    public function toArray()
+    public function toArray($params = [])
     {
-        return $this->processToArrayValue(StdObjectWrapper::toBool(parent::toArray()));
+        return $this->processToArrayValue(StdObjectWrapper::toBool(parent::toArray($params)));
     }
 }

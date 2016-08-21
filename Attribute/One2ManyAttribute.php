@@ -7,10 +7,9 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
-use Traversable;
+use Webiny\Component\Entity\Attribute\Validation\ValidationException;
 use Webiny\Component\Entity\Entity;
-use Webiny\Component\Entity\EntityAbstract;
-use Webiny\Component\Entity\EntityCollection;
+use Webiny\Component\Entity\AbstractEntity;
 use Webiny\Component\StdLib\StdLibTrait;
 
 
@@ -18,7 +17,7 @@ use Webiny\Component\StdLib\StdLibTrait;
  * One2Many attribute
  * @package Webiny\Component\Entity\AttributeType
  */
-class One2ManyAttribute extends CollectionAttributeAbstract
+class One2ManyAttribute extends AbstractCollectionAttribute
 {
     use StdLibTrait;
 
@@ -29,19 +28,19 @@ class One2ManyAttribute extends CollectionAttributeAbstract
     protected $dataLoaded = false;
 
     /**
-     * @var null|\Webiny\Component\Entity\EntityAbstract
+     * @var null|\Webiny\Component\Entity\AbstractEntity
      */
-    protected $entity = null;
+    protected $parent = null;
 
     /**
-     * @param string         $attribute
-     * @param EntityAbstract $entity
+     * @param null|string    $name
+     * @param AbstractEntity $parent
      * @param string         $relatedAttribute
      */
-    public function __construct($attribute, EntityAbstract $entity, $relatedAttribute)
+    public function __construct($name = null, AbstractEntity $parent = null, $relatedAttribute)
     {
         $this->relatedAttribute = $relatedAttribute;
-        parent::__construct($attribute, $entity);
+        parent::__construct($name, $parent);
     }
 
     public function isLoaded()
@@ -127,6 +126,8 @@ class One2ManyAttribute extends CollectionAttributeAbstract
 
         if (!$fromDb) {
             $value = $this->processSetValue($value);
+            $value = $this->normalizeValue($value);
+            $this->validate($value);
 
             // If new value is being set - delete all existing records that are NOT in the new data set
             $this->cleanUpRecords($value);
@@ -141,12 +142,14 @@ class One2ManyAttribute extends CollectionAttributeAbstract
     /**
      * Set or get attribute value
      *
-     * @return bool|null|\Webiny\Component\Entity\EntityAbstract
+     * @param array $params
+     *
+     * @return bool|null|AbstractEntity
      */
-    public function getValue()
+    public function getValue($params = [])
     {
         if ($this->isNull($this->value)) {
-            $entityId = $this->entity->id;
+            $entityId = $this->parent->id;
             $entityId = empty($entityId) ? '__webiny_dummy_id__' : $entityId;
             $query = [
                 $this->relatedAttribute => $entityId
@@ -154,7 +157,7 @@ class One2ManyAttribute extends CollectionAttributeAbstract
 
             $filters = $this->filter;
             if (is_string($filters) || is_callable($filters)) {
-                $callable = is_string($filters) ? [$this->entity, $filters] : $filters;
+                $callable = is_string($filters) ? [$this->parent, $filters] : $filters;
                 $filters = call_user_func_array($callable, []);
             }
 
@@ -168,13 +171,13 @@ class One2ManyAttribute extends CollectionAttributeAbstract
             $this->dataLoaded = true;
         }
 
-        return $this->processGetValue($this->value);
+        return $this->processGetValue($this->value, $params);
     }
 
     public function hasValue()
     {
         if ($this->isNull($this->value)) {
-            $entityId = $this->entity->id;
+            $entityId = $this->parent->id;
             $entityId = empty($entityId) ? '__webiny_dummy_id__' : $entityId;
             $query = [
                 $this->relatedAttribute => $entityId
@@ -212,12 +215,69 @@ class One2ManyAttribute extends CollectionAttributeAbstract
         return $sorters;
     }
 
+    /**
+     * Normalize given value to be a valid array of entity instances
+     *
+     * @param mixed $value
+     *
+     * @return array
+     * @throws ValidationException
+     */
+    private function normalizeValue($value)
+    {
+        $entityClass = $this->getEntity();
+        $entityCollectionClass = '\Webiny\Component\Entity\EntityCollection';
+
+        // Validate One2Many attribute value
+        if (!$this->isArray($value) && !$this->isArrayObject($value) && !$this->isInstanceOf($value, $entityCollectionClass)) {
+            $exception = new ValidationException(ValidationException::DATA_TYPE, [
+                'array, ArrayObject or EntityCollection',
+                gettype($value)
+            ]);
+            $exception->setAttribute($this->getName());
+            throw $exception;
+        }
+
+        /* @var $entityAttribute One2ManyAttribute */
+        $values = [];
+        foreach ($value as $item) {
+            $itemEntity = false;
+
+            // $item can be an array of data, AbstractEntity or a simple mongo ID string
+            if ($this->isInstanceOf($item, $entityClass)) {
+                $itemEntity = $item;
+            } elseif ($this->isArray($item) || $this->isArrayObject($item)) {
+                $itemEntity = $entityClass::findById(isset($item['id']) ? $item['id'] : false);
+            } elseif ($this->isString($item) && Entity::getInstance()->getDatabase()->isId($item)) {
+                $itemEntity = $entityClass::findById($item);
+            }
+
+            // If instance was not found, create a new entity instance
+            if (!$itemEntity) {
+                $itemEntity = new $entityClass;
+            }
+
+            // If $item is an array - use it to populate the entity instance
+            if ($this->isArray($item) || $this->isArrayObject($item)) {
+                $itemEntity->populate($item);
+            }
+
+            $values[] = $itemEntity;
+        }
+
+        return $values;
+    }
+
     private function cleanUpRecords($newValues)
     {
+        if (!$this->parent->exists()) {
+            return;
+        }
+
         $newIds = [];
         foreach ($newValues as $nv) {
             if (isset($nv['id']) && $nv['id'] != '') {
-                $newIds[] = new \MongoId($nv['id']);
+                $newIds[] = Entity::getInstance()->getDatabase()->id($nv['id']);
             }
         }
 
@@ -225,7 +285,7 @@ class One2ManyAttribute extends CollectionAttributeAbstract
             '_id' => ['$nin' => $newIds]
         ];
 
-        $where[$this->relatedAttribute] = $this->entity->id;
+        $where[$this->relatedAttribute] = $this->parent->id;
 
         $toRemove = call_user_func_array([$this->entityClass, 'find'], [$where]);
         foreach ($toRemove as $r) {

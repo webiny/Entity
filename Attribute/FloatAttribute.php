@@ -7,13 +7,13 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
-use Webiny\Component\Entity\Validation\ValidationException;
+use Webiny\Component\Entity\Attribute\Validation\ValidationException;
 
 /**
  * FloatAttribute
  * @package Webiny\Component\Entity\AttributeType
  */
-class FloatAttribute extends AttributeAbstract
+class FloatAttribute extends AbstractAttribute
 {
 
     public function getDbValue()
@@ -27,6 +27,19 @@ class FloatAttribute extends AttributeAbstract
     }
 
     /**
+     * Get value that will be used to represent this attribute when converting AbstractEntity to array
+     *
+     * @param array $params
+     *
+     * @return string
+     */
+    public function toArray($params = [])
+    {
+        return (float)parent::toArray($params);
+    }
+
+
+    /**
      * Perform validation against given value
      *
      * @param $value
@@ -36,7 +49,7 @@ class FloatAttribute extends AttributeAbstract
      */
     protected function validate(&$value)
     {
-        if($this->str($value)->contains(',')){
+        if ($this->str($value)->contains(',')) {
             $value = $this->str($value)->replace(',', '.')->val();
         }
         $value = floatval($value);
@@ -44,6 +57,8 @@ class FloatAttribute extends AttributeAbstract
         if (!$this->isNumber($value)) {
             $this->expected('number', gettype($value));
         }
+
+        parent::validate($value);
 
         return $this;
     }

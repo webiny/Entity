@@ -18,22 +18,16 @@ use Webiny\Component\StdLib\StdObject\StdObjectWrapper;
  *
  * @package Webiny\Component\Entity
  */
-class EntityCollection implements \IteratorAggregate, \ArrayAccess
+class EntityCollection implements \IteratorAggregate, \ArrayAccess, \Countable
 {
     use MongoTrait, StdLibTrait;
 
-    /**
-     * @var \MongoCursor
-     */
-    private $cursor;
     private $entityClass;
     private $collectionName;
-    private $conditions;
-    private $order;
-    private $offset;
-    private $limit;
-    private $count;
+    private $data = [];
+    private $totalCount;
     private $value = [];
+    private $conditions = [];
     private $loaded = false;
     private $randomize = false;
 
@@ -49,17 +43,10 @@ class EntityCollection implements \IteratorAggregate, \ArrayAccess
         $this->entityClass = $entityClass;
         $this->collectionName = $entityCollection;
         $this->conditions = $conditions;
-        $this->order = $order;
-        $this->offset = $offset;
         $this->limit = $limit;
+        $this->offset = $offset;
 
-        $this->cursor = Entity::getInstance()
-                              ->getDatabase()
-                              ->find($this->collectionName, $this->conditions)
-                              ->sort($this->order)
-                              ->skip($this->offset)
-                              ->limit($this->limit);
-
+        $this->data = Entity::getInstance()->getDatabase()->find($entityCollection, $conditions, $order, $limit, $offset);
     }
 
     /**
@@ -78,21 +65,36 @@ class EntityCollection implements \IteratorAggregate, \ArrayAccess
     }
 
     /**
-     * Convert EntityCollection to array.<br>
-     * Each EntityAbstract wil be converted to array using $fields and $nestedLevel specified.<br>
-     * If no fields are specified, array will contain all simple and Many2One attributes
-     *
+     * Get collection limit
+     * @return mixed
+     */
+    public function getLimit()
+    {
+        return $this->limit;
+    }
+
+    /**
+     * Get collection offset
+     * @return mixed
+     */
+    public function getOffset()
+    {
+        return $this->offset;
+    }
+
+    /**
+     * Convert EntityCollection to array.
+     * Each AbstractEntity wil be converted to array using $fields which can be defined as a comma-separated keys, or as a function
+     * which will be ran with each entity - this gives the possibility to return different data sets depending on the given function
      * @param string $fields List of fields to extract
-     *
-     * @param int    $nestedLevel How many levels to extract (Default: 1, means SELF + 1 level)
      *
      * @return array
      */
-    public function toArray($fields = '', $nestedLevel = 1)
+    public function toArray($fields = '')
     {
         $data = [];
         foreach ($this->getIterator() as $entity) {
-            $data[] = $entity->toArray($fields, $nestedLevel);
+            $data[] = is_callable($fields) ? $fields($entity) : $entity->toArray($fields);
         }
 
         return $data;
@@ -101,7 +103,7 @@ class EntityCollection implements \IteratorAggregate, \ArrayAccess
     /**
      * Add item to collection
      *
-     * @param array|EntityAbstract $item
+     * @param array|AbstractEntity $item
      *
      * @return $this
      */
@@ -112,7 +114,7 @@ class EntityCollection implements \IteratorAggregate, \ArrayAccess
         }
 
         foreach ($item as $addItem) {
-            if (!$this->isInstanceOf($addItem, '\Webiny\Component\Entity\EntityAbstract')) {
+            if (!$this->isInstanceOf($addItem, '\Webiny\Component\Entity\AbstractEntity')) {
                 $class = $this->entityClass;
                 $addItem = $class::findById($addItem);
             }
@@ -126,42 +128,69 @@ class EntityCollection implements \IteratorAggregate, \ArrayAccess
     }
 
     /**
-     * Count items in collection
+     * Count items in entity collection
+     *
      * @return mixed
      */
     public function count()
     {
-        return $this->cursor->count(true);
+        return count(iterator_to_array($this->getIterator()));
+    }
+
+    /**
+     * Gets first entity in collection
+     * @return AbstractEntity|null
+     */
+    public function first()
+    {
+        return $this->getIterator()[0] ?? null;
+    }
+
+    /**
+     * Gets last entity in collection
+     * @return AbstractEntity|null
+     */
+    public function last()
+    {
+        $lastIndex = $this->getIterator()->count() - 1;
+
+        return $this->getIterator()[$lastIndex] ?? null;
     }
 
     /**
      * Count total number of items without limit and offset
+     *
+     * TODO: unittest
+     *
      * @return mixed
      */
     public function totalCount()
     {
-        if (!$this->count) {
-            $this->count = $this->cursor->count(false);
+        if (!$this->totalCount) {
+            $mongo = Entity::getInstance()->getDatabase();
+            $this->totalCount = $mongo->count($this->collectionName, $this->conditions);
         }
 
-        return $this->count;
+        return $this->totalCount;
     }
 
     /**
      * Check if given item is already in the data set.<br>
      * NOTE: this triggers loading of data from database if not yet loaded
      *
-     * @param string|EntityAbstract $item ID or EntityAbstract instance
+     * TODO: unittest
+     *
+     * @param string|AbstractEntity $item ID or AbstractEntity instance
      *
      * @return bool
      */
     public function contains($item)
     {
-        if ($this->isInstanceOf($item, '\Webiny\Component\Entity\EntityAbstract')) {
-            $item = $item->getId()->getValue();
+        if ($this->isInstanceOf($item, '\Webiny\Component\Entity\AbstractEntity')) {
+            $item = $item->id;
         }
         foreach ($this->getIterator() as $entity) {
-            $eId = $entity->getId()->getValue();
+            $eId = $entity->id;
             if (!$this->isNull($eId) && $eId == $item) {
                 return true;
             }
@@ -193,11 +222,11 @@ class EntityCollection implements \IteratorAggregate, \ArrayAccess
     public function removeItem($item)
     {
         if ($this->loaded) {
-            if ($this->isInstanceOf($item, '\Webiny\Component\Entity\EntityAbstract')) {
-                $item = $item->getId()->getValue();
+            if ($this->isInstanceOf($item, '\Webiny\Component\Entity\AbstractEntity')) {
+                $item = $item->id;
             }
             foreach ($this->getIterator() as $index => $entity) {
-                if ($entity->getId()->getValue() == $item) {
+                if ($entity->id == $item) {
                     unset($this->value[$index]);
 
                     return;
@@ -207,22 +236,13 @@ class EntityCollection implements \IteratorAggregate, \ArrayAccess
     }
 
     /**
-     * Get mongo query explanation
+     * Get collection data
      *
      * @return array
      */
-    public function explain()
-    {
-        return $this->cursor->explain();
-    }
-
-    /**
-     * Get collection data
-     * @return Traversable
-     */
     public function getData()
     {
-        return $this->getIterator();
+        return iterator_to_array($this->getIterator());
     }
 
     public function randomize()
@@ -246,20 +266,20 @@ class EntityCollection implements \IteratorAggregate, \ArrayAccess
         }
 
         $dbItems = [];
-        foreach ($this->cursor as $data) {
+        foreach ($this->data as $data) {
             $instance = new $this->entityClass;
             $data['__webiny_db__'] = true;
             $instance->populate($data);
             /**
              * Check if loaded instance is already in the pool and if yes - use the existing object
              */
-            if ($itemInPool = EntityPool::getInstance()->get($this->entityClass, $instance->getId()->getValue())) {
+            if ($itemInPool = Entity::getInstance()->get($this->entityClass, $instance->id)) {
                 $dbItems[] = $itemInPool;
             } else {
-                $dbItems[] = EntityPool::getInstance()->add($instance);
+                $dbItems[] = Entity::getInstance()->add($instance);
             }
         }
-        $this->value = array_merge($dbItems, $this->value);
+        $this->value += $dbItems;
         $this->loaded = true;
 
         if ($this->randomize) {

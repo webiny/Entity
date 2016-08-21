@@ -8,20 +8,19 @@
 namespace Webiny\Component\Entity;
 
 use Webiny\Component\Entity\Attribute\ArrayAttribute;
+use Webiny\Component\Entity\Attribute\AbstractAttribute;
 use Webiny\Component\Entity\Attribute\BooleanAttribute;
 use Webiny\Component\Entity\Attribute\CharAttribute;
 use Webiny\Component\Entity\Attribute\DateAttribute;
 use Webiny\Component\Entity\Attribute\DateTimeAttribute;
 use Webiny\Component\Entity\Attribute\DynamicAttribute;
 use Webiny\Component\Entity\Attribute\FloatAttribute;
+use Webiny\Component\Entity\Attribute\GeoPointAttribute;
 use Webiny\Component\Entity\Attribute\IntegerAttribute;
 use Webiny\Component\Entity\Attribute\Many2ManyAttribute;
 use Webiny\Component\Entity\Attribute\Many2OneAttribute;
 use Webiny\Component\Entity\Attribute\ObjectAttribute;
 use Webiny\Component\Entity\Attribute\One2ManyAttribute;
-use Webiny\Component\Entity\Attribute\SelectAttribute;
-use Webiny\Component\Entity\Attribute\TextAttribute;
-use Webiny\Component\StdLib\SingletonTrait;
 use Webiny\Component\StdLib\StdObject\ArrayObject\ArrayObject;
 
 
@@ -38,7 +37,7 @@ class EntityAttributeBuilder
     /**
      * @inheritDoc
      */
-    function __construct(EntityAbstract $entity, ArrayObject $attributes)
+    function __construct(AbstractEntity $entity, ArrayObject $attributes)
     {
         $this->entity = $entity;
         $this->attributes = $attributes;
@@ -56,6 +55,20 @@ class EntityAttributeBuilder
         $this->attribute = $attribute;
 
         return $this;
+    }
+
+    /**
+     * Set attribute instance
+     *
+     * @param AbstractAttribute $attribute
+     *
+     * @return AbstractAttribute
+     */
+    public function smart(AbstractAttribute $attribute)
+    {
+        $attribute->setName($this->attribute)->setParent($this->entity);
+
+        return $this->attributes[$this->attribute] = $attribute;
     }
 
     /**
@@ -96,22 +109,6 @@ class EntityAttributeBuilder
     public function char()
     {
         return $this->attributes[$this->attribute] = new CharAttribute($this->attribute, $this->entity);
-    }
-
-    /**
-     * @return TextAttribute
-     */
-    public function text()
-    {
-        return $this->attributes[$this->attribute] = new TextAttribute($this->attribute, $this->entity);
-    }
-
-    /**
-     * @return SelectAttribute
-     */
-    public function select()
-    {
-        return $this->attributes[$this->attribute] = new SelectAttribute($this->attribute, $this->entity);
     }
 
     /**
@@ -174,5 +171,13 @@ class EntityAttributeBuilder
     public function dynamic($callable)
     {
         return $this->attributes[$this->attribute] = new DynamicAttribute($this->attribute, $this->entity, $callable);
+    }
+
+    /**
+     * @return GeoPointAttribute
+     */
+    public function geoPoint()
+    {
+        return $this->attributes[$this->attribute] = new GeoPointAttribute($this->attribute, $this->entity);
     }
 }

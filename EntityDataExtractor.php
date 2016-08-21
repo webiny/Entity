@@ -7,15 +7,14 @@
 
 namespace Webiny\Component\Entity;
 
+use Webiny\Component\Entity\Attribute\AbstractAttribute;
 use Webiny\Component\Entity\Attribute\AttributeType;
-use Webiny\Component\Mongo\MongoTrait;
-use Webiny\Component\StdLib\SingletonTrait;
 use Webiny\Component\StdLib\StdLibTrait;
 use Webiny\Component\StdLib\StdObject\StringObject\StringObject;
 
 
 /**
- * EntityDataExtractor class converts EntityAbstract instance to an array representation.
+ * EntityDataExtractor class converts AbstractEntity instance to an array representation.
  *
  * @package Webiny\Component\Entity
  */
@@ -24,32 +23,23 @@ class EntityDataExtractor
     use StdLibTrait;
 
     /**
-     * @var EntityAbstract
+     * @var AbstractEntity
      */
     protected $entity;
 
     protected static $currentLevel = 0;
-    protected $nestedLevel = 1;
+    protected static $cache = [];
+    protected $nestedLevel = 10; // Maximum depth is 10 which is hard to achieve
     protected $aliases = [];
     protected $dottedFields = ['_name'];
 
-    public function __construct(EntityAbstract $entity, $nestedLevel = 1)
+    public function __construct(AbstractEntity $entity)
     {
-        if ($nestedLevel < 0) {
-            $nestedLevel = 1;
-        }
-
-        // Do not allow depth greater than 10
-        if ($nestedLevel > 10) {
-            $nestedLevel = 10;
-        }
-
         $this->entity = $entity;
-        $this->nestedLevel = $nestedLevel;
     }
 
     /**
-     * Extract EntityAbstract data to array using specified list of attributes.
+     * Extract AbstractEntity data to array using specified list of attributes.
      * If no attributes are specified, only simple and Many2One attributes will be extracted.
      * If you need to get One2Many and Many2Many attributes, you need to explicitly specify a list of attributes.
      *
@@ -67,50 +57,61 @@ class EntityDataExtractor
         $attributes = $this->buildEntityFields($attributes);
 
         foreach ($attributes as $attr => $subAttributes) {
-            if ($attr == '_name') {
-                continue;
-            }
+            $parts = explode(':', $attr);
+            $attrName = $parts[0];
+            $params = array_slice($parts, 1);
 
             try {
-                $entityAttribute = $this->entity->getAttribute($attr);
+                $entityAttribute = $this->entity->getAttribute($attrName);
             } catch (EntityException $e) {
                 continue;
             }
 
-            $entityAttributeValue = $entityAttribute->getValue();
+            $entityAttributeValue = $entityAttribute->getValue($params);
             $isOne2Many = $this->isInstanceOf($entityAttribute, AttributeType::ONE2MANY);
             $isMany2Many = $this->isInstanceOf($entityAttribute, AttributeType::MANY2MANY);
             $isMany2One = $this->isInstanceOf($entityAttribute, AttributeType::MANY2ONE);
             $isArray = $this->isInstanceOf($entityAttribute, AttributeType::ARR);
             $isObject = $this->isInstanceOf($entityAttribute, AttributeType::OBJECT);
+            $isDynamic = $this->isInstanceOf($entityAttribute, AttributeType::DYNAMIC);
 
             if ($isMany2One) {
                 if ($this->isNull($entityAttributeValue)) {
-                    $data[$attr] = null;
+                    $data[$attrName] = null;
                     continue;
                 }
 
                 if ($entityAttribute->hasToArrayCallback()) {
-                    $data[$attr] = $entityAttribute->toArray();
+                    $data[$attrName] = $entityAttribute->toArray($params);
                     continue;
                 }
 
                 if (self::$currentLevel < $this->nestedLevel) {
                     self::$currentLevel++;
-                    $data[$attr] = $entityAttributeValue->toArray($subAttributes, $this->nestedLevel);
+                    $data[$attrName] = $entityAttributeValue->toArray($subAttributes, $this->nestedLevel);
                     self::$currentLevel--;
                 }
             } elseif ($isOne2Many || $isMany2Many) {
-                $data[$attr] = [];
+                $data[$attrName] = [];
                 foreach ($entityAttributeValue as $item) {
                     if (self::$currentLevel < $this->nestedLevel) {
                         self::$currentLevel++;
-                        $data[$attr][] = $item->toArray($subAttributes, $this->nestedLevel);
+                        $data[$attrName][] = $item->toArray($subAttributes, $this->nestedLevel);
                         self::$currentLevel--;
                     }
                 }
             } elseif ($isObject) {
-                $data[$attr] = $entityAttribute->toArray();
+                $value = $entityAttribute->toArray($params);
+
+                if ($subAttributes) {
+                    $keys = $this->buildNestedKeys($subAttributes);
+                    $value = $this->arr();
+                    foreach ($keys as $key) {
+                        $value->keyNested($key, $entityAttribute->getValue()->keyNested($key));
+                    }
+                    $value = $value->val();
+                }
+                $data[$attrName] = $value;
             } elseif ($isArray) {
                 $value = $entityAttribute->toArray();
                 if ($subAttributes) {
@@ -122,12 +123,13 @@ class EntityDataExtractor
                     $value['__webiny_array__'] = true;
                 }
 
-                $data[$attr] = $value;
+                $data[$attrName] = $value;
+            } elseif ($isDynamic) {
+                $data[$attrName] = $entityAttribute->toArray($subAttributes, $params);
             } else {
-                $data[$attr] = $entityAttribute->toArray();
+                $data[$attrName] = $entityAttribute->toArray($params);
             }
         }
-        $data['_name'] = $this->entity->getMaskedValue();
 
         // Populate alias value
         $copy = $data;
@@ -168,6 +170,11 @@ class EntityDataExtractor
     private function buildEntityFields($fields)
     {
         if (!$this->isArray($fields)) {
+            $cacheKey = $fields;
+            if (array_key_exists($cacheKey, self::$cache)) {
+                return self::$cache[$cacheKey];
+            }
+
             $fields = $this->str($fields);
 
             if ($fields->contains('[')) {
@@ -176,6 +183,11 @@ class EntityDataExtractor
 
             $fields = $fields->explode(',')->filter()->map('trim')->val();
         } else {
+            $cacheKey = serialize($fields);
+            if (array_key_exists($cacheKey, self::$cache)) {
+                return self::$cache[$cacheKey];
+            }
+
             // Check if asterisk is present and replace it with actual attribute names
             if ($this->arr($fields)->keyExists('*')) {
                 unset($fields['*']);
@@ -183,10 +195,10 @@ class EntityDataExtractor
                 $fields = $this->arr($fields)->merge($defaultFields)->val();
             }
 
-            return $fields;
+            return self::$cache[$cacheKey] = $fields;
         }
 
-        $parsedFields = $this->arr();
+        $parsedFields = $this->arr(['id' => true]);
         $unsetFields = [];
 
         foreach ($fields as $f) {
@@ -219,7 +231,7 @@ class EntityDataExtractor
             $parsedFields->removeKey($field);
         }
 
-        return $parsedFields->val();
+        return self::$cache[$cacheKey] = $parsedFields->val();
     }
 
     /**
@@ -342,21 +354,12 @@ class EntityDataExtractor
      */
     private function getDefaultAttributes()
     {
-        $attributes = [];
+        $attributes = ['id'];
         foreach ($this->entity->getAttributes() as $name => $attribute) {
-            $default = [
-                $this->isInstanceOf($attribute, AttributeType::ONE2MANY),
-                $this->isInstanceOf($attribute, AttributeType::MANY2MANY),
-                $this->isInstanceOf($attribute, AttributeType::MANY2ONE),
-                $this->isInstanceOf($attribute, AttributeType::ARR),
-                $this->isInstanceOf($attribute, AttributeType::OBJECT)
-            ];
-
-            if (in_array(true, $default)) {
-                continue;
+            /* @var AbstractAttribute $attribute */
+            if ($attribute->getToArrayDefault()) {
+                $attributes[] = $name;
             }
-
-            $attributes[] = $name;
         }
 
         return $this->arr($attributes)->implode(',')->val();

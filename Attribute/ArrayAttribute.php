@@ -7,40 +7,44 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
+use MongoDB\Model\BSONArray;
+use MongoDB\Model\BSONDocument;
 use Traversable;
-use Webiny\Component\Entity\EntityAbstract;
-use Webiny\Component\Entity\EntityException;
-use Webiny\Component\Entity\Validation\ValidationException;
-use Webiny\Component\Entity\Attribute\Exception\ValidationException as AttributeValidationException;
+use Webiny\Component\Entity\Attribute\Validation\ValidationException;
+use Webiny\Component\Entity\AbstractEntity;
 use Webiny\Component\StdLib\StdObject\ArrayObject\ArrayObject;
 
 /**
  * ArrayAttribute
  * @package Webiny\Component\Entity\AttributeType
  */
-class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \ArrayAccess
+class ArrayAttribute extends AbstractAttribute implements \IteratorAggregate, \ArrayAccess
 {
     protected $keyValidators = [];
     protected $keyValidationMessages = [];
 
-    public function __construct($attribute, EntityAbstract $entity)
+    public function __construct($name = null, AbstractEntity $parent = null)
     {
-        parent::__construct($attribute, $entity);
+        parent::__construct($name, $parent);
         $this->value = new ArrayObject();
         $this->defaultValue = new ArrayObject();
     }
 
     public function getDbValue()
     {
-        if ($this->value->count() == 0) {
-            $value = $this->isStdObject($this->defaultValue) ? $this->defaultValue->val() : $this->defaultValue;
-        } else {
-            $value = $this->value->val();
+        $value = $this->getValue();
+        if (count($value) == 0) {
+            $defaultValue = $this->getDefaultValue();
+            $value = $this->isStdObject($defaultValue) ? $defaultValue->val() : $defaultValue;
+        }
+
+        if ($this->isStdObject($value)) {
+            $value = $value->val();
         }
 
         // Make sure it's not an associative array
         if ((bool)count(array_filter(array_keys($value), 'is_string'))) {
-            $ex = new AttributeValidationException(AttributeValidationException::VALIDATION_FAILED);
+            $ex = new ValidationException(ValidationException::VALIDATION_FAILED);
             $ex->addError($this->attribute, 'You should use ObjectAttribute for associative array instead of ArrayAttribute');
             throw $ex;
         }
@@ -52,6 +56,10 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
     {
         if ($this->isNull($value)) {
             $value = new ArrayObject();
+        }
+
+        if ($fromDb && $value instanceof BSONArray) {
+            $value = $this->convertToArray($value->getArrayCopy());
         }
 
         parent::setValue($value, $fromDb);
@@ -76,14 +84,13 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
     /**
      * @inheritDoc
      */
-    public function getValue()
+    public function getValue($params = [])
     {
-        $defaultValue = new ArrayObject($this->defaultValue);
-        if ($this->value->count() == 0 && $defaultValue->count() > 0) {
-            return $this->processGetValue($this->defaultValue);
+        if ($this->value->count() == 0 && !$this->isNull($this->defaultValue)) {
+            return $this->processGetValue($this->getDefaultValue(), $params);
         }
 
-        return $this->processGetValue($this->value);
+        return $this->processGetValue($this->value, $params);
     }
 
 
@@ -93,7 +100,6 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
      * @param $value
      *
      * @return $this
-     * @throws AttributeValidationException
      * @throws ValidationException
      */
     protected function validate(&$value)
@@ -115,15 +121,19 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
         return $this;
     }
 
-    public function toArray()
+    public function toArray($params = [])
     {
-        if ($this->value->count() == 0) {
-            $value = $this->isStdObject($this->defaultValue) ? $this->defaultValue->val() : $this->defaultValue;
-
-            return $this->processToArrayValue($value);
+        $value = $this->getValue($params);
+        if ($this->isStdObject($value)) {
+            $value = $value->val();
         }
 
-        return $this->processToArrayValue($this->value->val());
+        if (count($value) === 0) {
+            $defaultValue = $this->getDefaultValue();
+            $value = $this->isStdObject($defaultValue) ? $defaultValue->val() : $defaultValue;
+        }
+
+        return $this->processToArrayValue($value);
     }
 
 
@@ -319,14 +329,28 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
         unset($this->value[$offset]);
     }
 
+    protected function convertToArray($source)
+    {
+        $value = [];
+        foreach ($source as $k => $v) {
+            if ($v instanceof BSONDocument || $v instanceof BSONArray) {
+                $value[$k] = $this->convertToArray($v->getArrayCopy());
+            } else {
+                $value[$k] = $v;
+            }
+        }
+
+        return $value;
+    }
+
     /**
      * @param mixed $data
      *
-     * @throws Exception\ValidationException
+     * @throws ValidationException
      */
     private function validateNestedKeys($data)
     {
-        $ex = new AttributeValidationException(AttributeValidationException::VALIDATION_FAILED, [$this->attribute]);
+        $ex = new ValidationException(ValidationException::VALIDATION_FAILED, [$this->attribute]);
         $messages = $this->getKeyValidationMessages();
         $keyValidators = $this->getKeyValidators();
         $errors = [];
@@ -346,7 +370,7 @@ class ArrayAttribute extends AttributeAbstract implements \IteratorAggregate, \A
             foreach ($validators as $validator) {
                 try {
                     $this->applyValidator($validator, $key, $keyValue, isset($messages[$key]) ? $messages[$key] : []);
-                } catch (AttributeValidationException $e) {
+                } catch (ValidationException $e) {
                     foreach ($e as $key => $error) {
                         $errors[$this->attr() . '.' . $key] = $error;
                     }

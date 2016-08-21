@@ -13,7 +13,12 @@
 Mongo:
     Services:
         Webiny:
-            Class: '\Webiny\Component\Mongo\Mongo'
-            Arguments: [127.0.0.1:27017, webiny, null, null, WebinyTest]
-    Driver: \Webiny\Component\Mongo\Driver\Mongo
-    ResultClass: \Webiny\Component\Mongo\MongoResult
+            Class: \Webiny\Component\Mongo\Mongo
+            Arguments:
+                Uri: 127.0.0.1:27017
+                UriOptions: []
+                DriverOptions: []
+                CollectionPrefix: 'Entity_'
+            Calls:
+                - [selectDatabase, [webiny_test]]
+    Driver: \Webiny\Component\Mongo\Bridge\MongoDb
