@@ -21,7 +21,7 @@ class Many2OneAttribute extends AbstractAttribute
     use StdLibTrait;
 
     protected $entityClass = null;
-
+    protected $onDelete = 'ignore';
     protected $updateExisting = false;
 
     /**
@@ -70,6 +70,34 @@ class Many2OneAttribute extends AbstractAttribute
     public function getUpdateExisting()
     {
         return $this->updateExisting;
+    }
+
+    /**
+     * Get action to perform when parent entity is being deleted.
+     *
+     * @return string
+     */
+    public function getOnDelete()
+    {
+        return $this->onDelete;
+    }
+
+    /**
+     * Set action to perform when parent entity is being deleted.
+     *
+     * @param string $action cascade|ignore Default value is 'ignore'
+     *
+     * @return $this
+     */
+    public function setOnDelete($action = 'cascade')
+    {
+        if ($action != 'cascade' && $action != 'ignore') {
+            $action = 'ignore';
+        }
+
+        $this->onDelete = $action;
+
+        return $this;
     }
 
     /**
@@ -133,10 +161,11 @@ class Many2OneAttribute extends AbstractAttribute
      * Get attribute value
      *
      * @param array $params
+     * @param bool  $processCallbacks Process `onGet` callbacks
      *
      * @return bool|null|\Webiny\Component\Entity\AbstractEntity
      */
-    public function getValue($params = [])
+    public function getValue($params = [], $processCallbacks = true)
     {
         if (!$this->isInstanceOf($this->value, $this->entityClass) && !empty($this->value)) {
             $data = null;
@@ -156,10 +185,10 @@ class Many2OneAttribute extends AbstractAttribute
         }
 
         if (!$this->value && !$this->isNull($this->defaultValue)) {
-            return $this->processGetValue($this->getDefaultValue(), $params);
+            $this->value = $this->getDefaultValue();
         }
 
-        return $this->processGetValue($this->value, $params);
+        return $this->processGetValue($this->value, $params, $processCallbacks);
     }
 
     /**
@@ -266,6 +295,13 @@ class Many2OneAttribute extends AbstractAttribute
         return $this->getAttribute($name);
     }
 
+    public function onSetNull($callable)
+    {
+        $this->onSetNullCallback = $callable;
+
+        return $this;
+    }
+
     /**
      * Perform validation against given value
      *
@@ -286,14 +322,7 @@ class Many2OneAttribute extends AbstractAttribute
         return $this;
     }
 
-    public function onSetNull($callable)
-    {
-        $this->onSetNullCallback = $callable;
-
-        return $this;
-    }
-
-    private function loadEntity($id)
+    protected function loadEntity($id)
     {
         if (!$id) {
             return null;

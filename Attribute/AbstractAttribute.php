@@ -12,7 +12,6 @@ use Webiny\Component\Entity\Attribute\Validation\ValidationException;
 use Webiny\Component\Entity\Entity;
 use Webiny\Component\Entity\AbstractEntity;
 use Webiny\Component\Entity\EntityAttributeBuilder;
-use Webiny\Component\StdLib\FactoryLoaderTrait;
 use Webiny\Component\StdLib\StdLibTrait;
 
 
@@ -22,7 +21,7 @@ use Webiny\Component\StdLib\StdLibTrait;
  */
 abstract class AbstractAttribute implements JsonSerializable
 {
-    use StdLibTrait, FactoryLoaderTrait;
+    use StdLibTrait;
 
     /**
      * Entity this attribute belongs to
@@ -362,7 +361,7 @@ abstract class AbstractAttribute implements JsonSerializable
     /**
      * Get required flag
      *
-     * @return $this
+     * @return bool
      */
     public function isRequired()
     {
@@ -497,8 +496,8 @@ abstract class AbstractAttribute implements JsonSerializable
     /**
      * Set attribute value
      *
-     * @param null $value
-     * @param bool $fromDb
+     * @param null $value Attribute value
+     * @param bool $fromDb Is value coming from DB?
      *
      * @return $this
      */
@@ -526,18 +525,17 @@ abstract class AbstractAttribute implements JsonSerializable
      * Get attribute value
      *
      * @param array $params
+     * @param bool  $processCallbacks Process `onGet` callbacks
      *
      * @return $this
      */
-    public function getValue($params = [])
+    public function getValue($params = [], $processCallbacks = true)
     {
-        $value = $this->value;
-        $defaultValue = $this->getDefaultValue();
-        if ($this->isNull($value) && !$this->isNull($defaultValue)) {
-            $value = $defaultValue;
+        if ($this->isNull($this->value) && !$this->isNull($this->defaultValue)) {
+            $this->value = $this->getDefaultValue();
         }
 
-        return $this->processGetValue($value, $params);
+        return $this->processGetValue($this->value, $params, $processCallbacks);
     }
 
     /**
@@ -666,14 +664,15 @@ abstract class AbstractAttribute implements JsonSerializable
     /**
      * Triggered when calling 'getValue()' on attribute instance
      *
-     * @param       $value
+     * @param mixed $value
      * @param array $params
+     * @param bool  $processCallbacks
      *
      * @return mixed
      */
-    protected function processGetValue($value, $params = [])
+    protected function processGetValue($value, $params = [], $processCallbacks = true)
     {
-        return $this->processCallback($this->onGetCallback, $value, $params);
+        return $processCallbacks ? $this->processCallback($this->onGetCallback, $value, $params) : $value;
     }
 
     /**

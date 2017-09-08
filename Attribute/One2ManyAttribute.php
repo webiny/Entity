@@ -7,9 +7,9 @@
 
 namespace Webiny\Component\Entity\Attribute;
 
-use Webiny\Component\Entity\Attribute\Validation\ValidationException;
 use Webiny\Component\Entity\Entity;
 use Webiny\Component\Entity\AbstractEntity;
+use Webiny\Component\Entity\EntityCollection;
 use Webiny\Component\StdLib\StdLibTrait;
 
 
@@ -95,7 +95,7 @@ class One2ManyAttribute extends AbstractCollectionAttribute
      */
     public function setOnDelete($action = 'cascade')
     {
-        if ($action != 'cascade' && $action != 'restrict') {
+        if (!in_array($action, ['cascade', 'restrict', 'ignore'])) {
             $action = 'cascade';
         }
 
@@ -143,46 +143,49 @@ class One2ManyAttribute extends AbstractCollectionAttribute
      * Set or get attribute value
      *
      * @param array $params
+     * @param bool  $processCallbacks
      *
      * @return bool|null|AbstractEntity
      */
-    public function getValue($params = [])
+    public function getValue($params = [], $processCallbacks = true)
     {
         if ($this->isNull($this->value)) {
+            // We need to load records from DB - but ONLY if parent record has an ID (otherwise no child records can exist in DB)
             $entityId = $this->parent->id;
-            $entityId = empty($entityId) ? '__webiny_dummy_id__' : $entityId;
-            $query = [
-                $this->relatedAttribute => $entityId
-            ];
+            if (empty($entityId)) {
+                // No child records exist - return an empty EntityCollection
+                $this->value = new EntityCollection($this->entityClass, []);
+                $this->dataLoaded = true;
+            } else {
+                // Try loading child records using parent id
+                $query = [$this->relatedAttribute => $entityId];
 
-            $filters = $this->filter;
-            if (is_string($filters) || is_callable($filters)) {
-                $callable = is_string($filters) ? [$this->parent, $filters] : $filters;
-                $filters = call_user_func_array($callable, []);
+                // Get optional record filters
+                $filters = $this->filter;
+                if (is_string($filters) || is_callable($filters)) {
+                    $callable = is_string($filters) ? [$this->parent, $filters] : $filters;
+                    $filters = call_user_func_array($callable, []);
+                }
+
+                // Merge optional filters with main query
+                $query = array_merge($query, $filters);
+                $this->value = call_user_func_array([$this->entityClass, 'find'], [$query, $this->sorter]);
+                $this->dataLoaded = true;
             }
-
-            $query = array_merge($query, $filters);
-
-            $callable = [
-                $this->entityClass,
-                'find'
-            ];
-            $this->value = call_user_func_array($callable, [$query, $this->sorter]);
-            $this->dataLoaded = true;
         }
 
-        return $this->processGetValue($this->value, $params);
+        return $processCallbacks ? $this->processGetValue($this->value, $params) : $this->value;
     }
 
     public function hasValue()
     {
         if ($this->isNull($this->value)) {
+            // We need to count records in DB - but ONLY if parent record has an ID (otherwise no child records can exist in DB)
             $entityId = $this->parent->id;
-            $entityId = empty($entityId) ? '__webiny_dummy_id__' : $entityId;
-            $query = [
-                $this->relatedAttribute => $entityId
-            ];
-
+            if (empty($entityId)) {
+                return false;
+            }
+            $query = [$this->relatedAttribute => $entityId];
             $entityCollection = call_user_func_array([$this->entityClass, 'getEntityCollection'], []);
 
             return boolval(Entity::getInstance()->getDatabase()->count($entityCollection, $query));
@@ -215,59 +218,6 @@ class One2ManyAttribute extends AbstractCollectionAttribute
         return $sorters;
     }
 
-    /**
-     * Normalize given value to be a valid array of entity instances
-     *
-     * @param mixed $value
-     *
-     * @return array
-     * @throws ValidationException
-     */
-    private function normalizeValue($value)
-    {
-        $entityClass = $this->getEntity();
-        $entityCollectionClass = '\Webiny\Component\Entity\EntityCollection';
-
-        // Validate One2Many attribute value
-        if (!$this->isArray($value) && !$this->isArrayObject($value) && !$this->isInstanceOf($value, $entityCollectionClass)) {
-            $exception = new ValidationException(ValidationException::DATA_TYPE, [
-                'array, ArrayObject or EntityCollection',
-                gettype($value)
-            ]);
-            $exception->setAttribute($this->getName());
-            throw $exception;
-        }
-
-        /* @var $entityAttribute One2ManyAttribute */
-        $values = [];
-        foreach ($value as $item) {
-            $itemEntity = false;
-
-            // $item can be an array of data, AbstractEntity or a simple mongo ID string
-            if ($this->isInstanceOf($item, $entityClass)) {
-                $itemEntity = $item;
-            } elseif ($this->isArray($item) || $this->isArrayObject($item)) {
-                $itemEntity = $entityClass::findById(isset($item['id']) ? $item['id'] : false);
-            } elseif ($this->isString($item) && Entity::getInstance()->getDatabase()->isId($item)) {
-                $itemEntity = $entityClass::findById($item);
-            }
-
-            // If instance was not found, create a new entity instance
-            if (!$itemEntity) {
-                $itemEntity = new $entityClass;
-            }
-
-            // If $item is an array - use it to populate the entity instance
-            if ($this->isArray($item) || $this->isArrayObject($item)) {
-                $itemEntity->populate($item);
-            }
-
-            $values[] = $itemEntity;
-        }
-
-        return $values;
-    }
-
     private function cleanUpRecords($newValues)
     {
         if (!$this->parent->exists()) {
@@ -281,15 +231,11 @@ class One2ManyAttribute extends AbstractCollectionAttribute
             }
         }
 
-        $where = [
-            '_id' => ['$nin' => $newIds]
-        ];
-
-        $where[$this->relatedAttribute] = $this->parent->id;
-
-        $toRemove = call_user_func_array([$this->entityClass, 'find'], [$where]);
-        foreach ($toRemove as $r) {
-            $r->delete();
+        $attrValues = $this->getValue();
+        foreach ($attrValues as $r) {
+            if (!in_array($r->id, $newIds)) {
+                $r->delete();
+            }
         }
     }
 }
